@@ -4,26 +4,36 @@ Day-2 reference. Things you'll do more than once.
 
 ## Daily entry
 
+From inside WSL (the bootstrap installs a `cbox` helper symlinked into `/usr/local/bin`):
+
+```bash
+cbox              # bash shell in /projects
+cbox life         # bash shell in /projects/life
+cbox -c           # claude in /projects
+cbox -c life      # claude in /projects/life
+```
+
+`cbox` auto-starts the container if it has exited. Source: [`scripts/cbox`](../scripts/cbox).
+
+Direct invocation (no helper) is just:
 ```powershell
 wsl -d Ubuntu-24.04 -- docker exec -it claude-box bash -lc 'cd /projects/<repo> && claude'
 ```
 
 After a host reboot the first invocation takes ~5-10s extra (WSL distro start + Docker engine start). Subsequent calls are instant. The container has `--restart unless-stopped` so it comes up automatically with Docker.
 
-A short PowerShell alias in `$PROFILE` makes daily use one word:
+A short PowerShell alias in `$PROFILE` makes daily use one word from the Windows side too:
 
 ```powershell
 function claude {
   param([string]$Repo)
   if ($Repo) {
-    wsl -d Ubuntu-24.04 -- docker exec -it claude-box bash -lc "cd /projects/$Repo && exec claude"
+    wsl -d Ubuntu-24.04 -- cbox -c $Repo
   } else {
-    wsl -d Ubuntu-24.04 -- docker exec -it claude-box bash -lc 'exec claude'
+    wsl -d Ubuntu-24.04 -- cbox -c
   }
 }
 ```
-
-Then: `claude life`, `claude clipcutter`, or bare `claude` to land in `/projects/`.
 
 ## Multiple concurrent sessions
 

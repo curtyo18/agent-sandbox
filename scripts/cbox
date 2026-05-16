@@ -1,0 +1,38 @@
+#!/bin/bash
+# cbox — enter the agent-sandbox container.
+#
+# Usage:
+#   cbox                  bash shell in /projects
+#   cbox <repo>           bash shell in /projects/<repo>
+#   cbox -c               claude in /projects
+#   cbox -c <repo>        claude in /projects/<repo>
+
+set -e
+
+claude_mode=0
+if [[ "${1:-}" == "-c" || "${1:-}" == "--claude" ]]; then
+  claude_mode=1
+  shift
+fi
+repo="${1:-}"
+
+# Auto-start the container if it's exited.
+if ! docker ps --format '{{.Names}}' | grep -q '^claude-box$'; then
+  if docker ps -a --format '{{.Names}}' | grep -q '^claude-box$'; then
+    echo "claude-box exists but isn't running — starting..." >&2
+    docker start claude-box >/dev/null
+    sleep 1
+  else
+    echo "claude-box does not exist. Run bootstrap.sh first." >&2
+    exit 1
+  fi
+fi
+
+target="/projects"
+[[ -n "$repo" ]] && target="/projects/$repo"
+
+if [[ $claude_mode -eq 1 ]]; then
+  exec docker exec -it claude-box bash -lc "cd '$target' && exec claude"
+else
+  exec docker exec -it claude-box bash -lc "cd '$target' && exec bash"
+fi

@@ -67,9 +67,14 @@ if [[ -s "$PAT_FILE" ]]; then
   docker restart "$CONTAINER_NAME"
 fi
 
+echo "==> Installing cbox helper to /usr/local/bin"
+sudo ln -sf "$REPO_DIR/scripts/cbox" /usr/local/bin/cbox
+
 echo
 echo "Done. To use:"
-echo "  docker exec -it $CONTAINER_NAME bash -lc 'cd /projects/<repo> && claude'"
+echo "  cbox             bash shell in /projects"
+echo "  cbox <repo>      bash shell in /projects/<repo>"
+echo "  cbox -c <repo>   claude in /projects/<repo>"
 echo
 echo "First-time only:"
 echo "  docker exec -it $CONTAINER_NAME bash -lc 'claude login'"
