@@ -39,6 +39,12 @@ render_squid_conf() {
     includes+=$(cat "$plf")
   done
 
+  # If no allowlist was found (e.g. agent-config clone failed), write a tombstone ACL
+  # so squid still parses cleanly. Effectively denies all egress until allowlist arrives.
+  if [[ -z "$includes" ]]; then
+    includes=$'\n# fallback: no allowlist found, deny everything\nacl allowed_hosts dstdomain .invalid-no-allowlist\n'
+  fi
+
   # Substitute placeholder.
   awk -v inc="$includes" '{gsub(/\{ALLOWLIST_INCLUDES\}/, inc); print}' \
     /etc/squid/squid.conf.template > "$out"
@@ -46,6 +52,9 @@ render_squid_conf() {
 }
 
 # 3. Clone or pull agent-config.
+# Bypass the in-container proxy for these git ops — squid isn't running yet (chicken-and-egg:
+# render_squid_conf needs network-allowlist.conf which lives in agent-config which needs this clone).
+# github.com would be on the allowlist anyway, so direct egress here matches policy.
 sync_config() {
   local pat="$(cat "$AUTH_DIR/github-pat" 2>/dev/null || true)"
 
@@ -57,12 +66,12 @@ sync_config() {
 
   if [[ -d "$CONFIG_DIR/.git" ]]; then
     cd "$CONFIG_DIR"
-    if ! git pull --ff-only 2>>/tmp/git-pull.err; then
+    if ! HTTPS_PROXY="" HTTP_PROXY="" git pull --ff-only 2>>/tmp/git-pull.err; then
       log_event "entrypoint" "config-pull-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
       echo "WARN: git pull failed in $CONFIG_DIR; using last-good cache." >&2
     fi
   else
-    if ! git clone --depth=1 \
+    if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 \
       "https://x-access-token:${pat}@github.com/curtyo18/agent-config.git" \
       "$CONFIG_DIR" 2>>/tmp/git-clone.err
     then
