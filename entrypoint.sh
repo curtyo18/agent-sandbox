@@ -84,8 +84,10 @@ sync_config() {
   find "$CONFIG_DIR/hooks" -name "*.cjs" -exec chmod +rx {} \; 2>/dev/null || true
   find "$CONFIG_DIR/hooks" -name "*.sh"  -exec chmod +rx {} \; 2>/dev/null || true
 
-  # Wire git to invoke the pre-commit secret-scan hook globally.
+  # Wire git: hooksPath for pre-commit, identity for commits (idempotent).
   git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
+  git config --global user.email "curtyo18@gmail.com" 2>/dev/null || true
+  git config --global user.name "curtyo18" 2>/dev/null || true
 
   # Install enabledPlugins from settings.json (idempotent: skip if already installed).
   if [[ -f "$CONFIG_DIR/settings.json" ]]; then
