@@ -95,6 +95,21 @@ sync_config() {
   fi
   gh auth setup-git 2>/dev/null || true
 
+  # Mark first-run onboarding as complete in /home/claude/.claude.json.
+  # Without this, claude shows the "Select login method" wizard on every container recreate
+  # (the file lives outside the claude-cfg-cache volume, so it doesn't persist).
+  # See: https://github.com/anthropics/claude-code/issues/4714
+  python3 -c "
+import json, os
+p = '$CLAUDE_HOME/.claude.json'
+d = {}
+if os.path.exists(p):
+    try: d = json.load(open(p))
+    except: d = {}
+d['hasCompletedOnboarding'] = True
+json.dump(d, open(p, 'w'), indent=2)
+" 2>/dev/null || true
+
   # Install enabledPlugins from settings.json (idempotent: skip if already installed).
   if [[ -f "$CONFIG_DIR/settings.json" ]]; then
     local plugins
