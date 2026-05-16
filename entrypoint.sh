@@ -89,6 +89,12 @@ sync_config() {
   git config --global user.email "curtyo18@gmail.com" 2>/dev/null || true
   git config --global user.name "curtyo18" 2>/dev/null || true
 
+  # Auth gh with the PAT and register it as git credential helper (idempotent).
+  if [[ -s "$AUTH_DIR/github-pat" ]] && ! gh auth status >/dev/null 2>&1; then
+    cat "$AUTH_DIR/github-pat" | gh auth login --hostname github.com --git-protocol https --with-token 2>/dev/null || true
+  fi
+  gh auth setup-git 2>/dev/null || true
+
   # Install enabledPlugins from settings.json (idempotent: skip if already installed).
   if [[ -f "$CONFIG_DIR/settings.json" ]]; then
     local plugins
