@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# entrypoint.sh — runs once at container start, then stays alive for `docker exec`.
+
+set -uo pipefail
+
+CLAUDE_HOME="/home/claude"
+CONFIG_DIR="$CLAUDE_HOME/.claude"
+AUTH_DIR="$CLAUDE_HOME/.claude-auth"
+AUDIT_DIR="/audit"
+TODAY="$(date -u +%F)"
+AUDIT_FILE="$AUDIT_DIR/$TODAY.jsonl"
+
+log_event() {
+  local src="$1" action="$2" reason="${3:-}"
+  mkdir -p "$AUDIT_DIR"
+  printf '{"ts":"%s","src":"%s","action":"%s","reason":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$src" "$action" "$reason" >> "$AUDIT_FILE"
+}
+
+# 1. Ensure audit dir + today's file exist.
+mkdir -p "$AUDIT_DIR" "$AUTH_DIR"
+touch "$AUDIT_FILE"
+
+# 2. Render squid config from template + global allowlist + any per-project allowlists.
+render_squid_conf() {
+  local out="/tmp/squid.conf"
+  local includes=""
+
+  # Global allowlist from agent-config.
+  if [[ -f "$CONFIG_DIR/network-allowlist.conf" ]]; then
+    includes+=$'\n# from agent-config/network-allowlist.conf\n'
+    includes+=$(cat "$CONFIG_DIR/network-allowlist.conf")
+  fi
+
+  # Per-project allowlists (any file matching /projects/*/.claude-allowlist.conf).
+  for plf in /projects/*/.claude-allowlist.conf; do
+    [[ -f "$plf" ]] || continue
+    includes+=$'\n# from '"$plf"$'\n'
+    includes+=$(cat "$plf")
+  done
+
+  # Substitute placeholder.
+  awk -v inc="$includes" '{gsub(/\{ALLOWLIST_INCLUDES\}/, inc); print}' \
+    /etc/squid/squid.conf.template > "$out"
+  sudo cp "$out" /etc/squid/squid.conf
+}
+
+# 3. Clone or pull agent-config.
+sync_config() {
+  local pat="$(cat "$AUTH_DIR/github-pat" 2>/dev/null || true)"
+
+  if [[ -z "$pat" ]]; then
+    log_event "entrypoint" "config-sync-skipped" "no-pat"
+    echo "WARN: no GitHub PAT at $AUTH_DIR/github-pat; using cached config (if any)." >&2
+    return 0
+  fi
+
+  if [[ -d "$CONFIG_DIR/.git" ]]; then
+    cd "$CONFIG_DIR"
+    if ! git pull --ff-only 2>>/tmp/git-pull.err; then
+      log_event "entrypoint" "config-pull-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
+      echo "WARN: git pull failed in $CONFIG_DIR; using last-good cache." >&2
+    fi
+  else
+    if ! git clone --depth=1 \
+      "https://x-access-token:${pat}@github.com/curtyo18/agent-config.git" \
+      "$CONFIG_DIR" 2>>/tmp/git-clone.err
+    then
+      log_event "entrypoint" "config-clone-failed" "$(tail -1 /tmp/git-clone.err 2>/dev/null)"
+      echo "FATAL: initial config clone failed; container will run without skills/hooks." >&2
+    fi
+  fi
+
+  # Ensure hooks have read+exec.
+  find "$CONFIG_DIR/hooks" -name "*.cjs" -exec chmod +rx {} \; 2>/dev/null || true
+  find "$CONFIG_DIR/hooks" -name "*.sh"  -exec chmod +rx {} \; 2>/dev/null || true
+}
+
+# 4. Start squid (after render_squid_conf).
+start_squid() {
+  sudo squid -N -f /etc/squid/squid.conf &
+  # Tail access.log into audit (best-effort; squid format).
+  sudo bash -c 'tail -F /var/log/squid/access.log 2>/dev/null | while read -r line; do
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    host="$(echo "$line" | awk "{print \$7}")"
+    action="$(echo "$line" | awk "{print \$4}")"
+    printf "{\"ts\":\"%s\",\"src\":\"squid\",\"action\":\"%s\",\"host\":\"%s\"}\n" \
+      "$ts" "$action" "$host" >> "'"$AUDIT_FILE"'"
+  done' &
+}
+
+# === Run sequence ===
+sync_config
+render_squid_conf
+start_squid
+log_event "entrypoint" "ready" ""
+
+# 5. Stay alive forever.
+exec sleep infinity

@@ -56,6 +56,10 @@ ENV TZ=Europe/London \
     BASH_ENV=/usr/local/bin/audit-shell.sh \
     PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
+# Allow claude user to start squid (and tail its log) without a password.
+RUN echo 'claude ALL=(root) NOPASSWD: /usr/sbin/squid, /bin/bash, /usr/bin/tail, /bin/cp' > /etc/sudoers.d/claude && \
+    chmod 440 /etc/sudoers.d/claude
+
 USER claude
 WORKDIR /projects
 
