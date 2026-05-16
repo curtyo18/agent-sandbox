@@ -6,8 +6,8 @@
 set -euo pipefail
 
 REPO_DIR="${HOME}/code/agent-sandbox"
-PROJECTS_HOST_PATH="/mnt/e/projects"
-AUDIT_HOST_PATH="/mnt/e/projects/.claude-audit"
+PROJECTS_HOST_PATH="/mnt/e/Projects"
+AUDIT_HOST_PATH="/mnt/e/Projects/.claude-audit"
 CONTAINER_NAME="claude-box"
 IMAGE_TAG="claude-box:latest"
 PAT_FILE="${HOME}/.agent-sandbox/github-pat"
