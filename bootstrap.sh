@@ -72,11 +72,6 @@ fi
 echo "==> Installing cbox helper to /usr/local/bin"
 sudo ln -sf "$REPO_DIR/scripts/cbox" /usr/local/bin/cbox
 
-echo "==> Ensuring inotify-tools is installed (for clipboard watcher)"
-if ! command -v inotifywait >/dev/null; then
-  sudo apt-get install -y -qq inotify-tools
-fi
-
 echo "==> Installing clip-watcher as systemd service"
 sudo ln -sf "$REPO_DIR/scripts/clip-watcher" /usr/local/bin/claude-clip-watcher
 sudo cp "$REPO_DIR/scripts/claude-clip-watcher.service" /etc/systemd/system/claude-clip-watcher.service

@@ -1,16 +1,18 @@
 #!/bin/bash
 # clip-watcher — WSL-side bridge for the container's clipboard.
-# Watches the host-visible clipboard directory; dispatches by filename:
+# Polls the host-visible clipboard directory (inotify doesn't fire on WSL2
+# 9p mounts so we can't use inotifywait here). Dispatches by filename:
 #   out      → container wrote outgoing text; pipe to Windows clip.exe
 #   request  → container asks for clipboard; capture via PowerShell, write response
 #
-# Started by bootstrap.sh in the background. Survives terminal close.
+# Run as a systemd service (see claude-clip-watcher.service).
 
-set -e
+set -u
 DIR="/mnt/e/Projects/.claude-clipboard"
 CLIP_EXE="/mnt/c/Windows/System32/clip.exe"
 POWERSHELL="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 LOG="/tmp/claude-clip-watcher.log"
+POLL_INTERVAL=0.5
 
 mkdir -p "$DIR"
 touch "$DIR/out"
@@ -20,23 +22,28 @@ if [[ -f "$LOG" && $(stat -c %s "$LOG") -gt 1048576 ]]; then
   : > "$LOG"
 fi
 
-echo "[$(date -Iseconds)] watcher starting, watching $DIR" >> "$LOG"
+echo "[$(date -Iseconds)] watcher starting (polling), watching $DIR" >> "$LOG"
 
-# Watch the directory for create + close_write. Dispatch on filename.
-inotifywait -mq -e create -e close_write --format '%f %e' "$DIR" |
-while read -r file _events; do
-  case "$file" in
-    out)
-      bytes=$(stat -c %s "$DIR/out" 2>/dev/null || echo 0)
-      if [[ "$bytes" -gt 0 ]]; then
-        "$CLIP_EXE" < "$DIR/out"
-        echo "[$(date -Iseconds)] out → clipboard ($bytes bytes)" >> "$LOG"
-      fi
-      ;;
-    request)
-      "$POWERSHELL" -NoProfile -Command 'Get-Clipboard -Raw' 2>/dev/null | sed 's/\r$//' > "$DIR/response"
-      rm -f "$DIR/request"
-      echo "[$(date -Iseconds)] clipboard → response" >> "$LOG"
-      ;;
-  esac
+last_out_mtime=$(stat -c %Y "$DIR/out" 2>/dev/null || echo 0)
+
+while true; do
+  sleep "$POLL_INTERVAL"
+
+  # Outbound: container → Windows clipboard
+  cur_out_mtime=$(stat -c %Y "$DIR/out" 2>/dev/null || echo 0)
+  if [[ "$cur_out_mtime" != "$last_out_mtime" ]]; then
+    bytes=$(stat -c %s "$DIR/out" 2>/dev/null || echo 0)
+    if [[ "$bytes" -gt 0 ]]; then
+      "$CLIP_EXE" < "$DIR/out"
+      echo "[$(date -Iseconds)] out → clipboard ($bytes bytes)" >> "$LOG"
+    fi
+    last_out_mtime=$cur_out_mtime
+  fi
+
+  # Inbound: container request → capture Windows clipboard → response file
+  if [[ -e "$DIR/request" ]]; then
+    "$POWERSHELL" -NoProfile -Command 'Get-Clipboard -Raw' 2>/dev/null | sed 's/\r$//' > "$DIR/response"
+    rm -f "$DIR/request"
+    echo "[$(date -Iseconds)] clipboard → response" >> "$LOG"
+  fi
 done
