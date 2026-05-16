@@ -32,7 +32,9 @@ target="/projects"
 [[ -n "$repo" ]] && target="/projects/$repo"
 
 if [[ $claude_mode -eq 1 ]]; then
-  exec docker exec -it claude-box bash -lc "cd '$target' && exec claude"
+  # --dangerously-skip-permissions: bypass all prompts. Container guard rails
+  # (squid allowlist, gh wrapper, pre-commit secret-scan) still enforce.
+  exec docker exec -it claude-box bash -lc "cd '$target' && exec claude --dangerously-skip-permissions"
 else
   exec docker exec -it claude-box bash -lc "cd '$target' && exec bash"
 fi
