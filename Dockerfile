@@ -29,10 +29,13 @@ RUN curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEA
 # Claude Code CLI.
 RUN npm install -g @anthropic-ai/claude-code
 
-# Non-root user.
+# Non-root user. `node:lts-bookworm` base ships a `node` user/group at UID/GID 1000 —
+# delete it so we can reuse 1000 for `claude` (matches host curt UID for bind-mount ownership).
 ARG UID=1000
 ARG GID=1000
-RUN groupadd -g ${GID} claude && \
+RUN userdel -r node 2>/dev/null || true && \
+    groupdel node 2>/dev/null || true && \
+    groupadd -g ${GID} claude && \
     useradd -m -u ${UID} -g ${GID} -s /bin/bash claude && \
     mkdir -p /home/claude/.claude /home/claude/.claude-auth /audit /projects && \
     chown -R claude:claude /home/claude /audit /projects
