@@ -83,6 +83,9 @@ sync_config() {
   # Ensure hooks have read+exec.
   find "$CONFIG_DIR/hooks" -name "*.cjs" -exec chmod +rx {} \; 2>/dev/null || true
   find "$CONFIG_DIR/hooks" -name "*.sh"  -exec chmod +rx {} \; 2>/dev/null || true
+
+  # Wire git to invoke the pre-commit secret-scan hook globally.
+  git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
 }
 
 # 4. Start squid (after render_squid_conf).
