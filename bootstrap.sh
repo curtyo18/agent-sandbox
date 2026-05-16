@@ -77,15 +77,14 @@ if ! command -v inotifywait >/dev/null; then
   sudo apt-get install -y -qq inotify-tools
 fi
 
-echo "==> Installing clip-watcher + starting in background"
+echo "==> Installing clip-watcher as systemd service"
 sudo ln -sf "$REPO_DIR/scripts/clip-watcher" /usr/local/bin/claude-clip-watcher
-if ! pgrep -f /usr/local/bin/claude-clip-watcher >/dev/null; then
-  nohup /usr/local/bin/claude-clip-watcher >/dev/null 2>&1 &
-  disown 2>/dev/null || true
-  echo "    started; log at /tmp/claude-clip-watcher.log"
-else
-  echo "    already running"
-fi
+sudo cp "$REPO_DIR/scripts/claude-clip-watcher.service" /etc/systemd/system/claude-clip-watcher.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now claude-clip-watcher.service
+sudo systemctl restart claude-clip-watcher.service
+echo "    status: $(systemctl is-active claude-clip-watcher.service)"
+echo "    log at /tmp/claude-clip-watcher.log"
 
 echo
 echo "Done. To use:"

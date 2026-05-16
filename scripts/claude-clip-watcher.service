@@ -1,0 +1,14 @@
+[Unit]
+Description=Claude container clipboard bridge (clip + paste)
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/claude-clip-watcher
+Restart=always
+RestartSec=5
+StandardOutput=append:/tmp/claude-clip-watcher.log
+StandardError=append:/tmp/claude-clip-watcher.log
+
+[Install]
+WantedBy=multi-user.target
