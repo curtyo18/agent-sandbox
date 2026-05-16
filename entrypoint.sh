@@ -86,6 +86,20 @@ sync_config() {
 
   # Wire git to invoke the pre-commit secret-scan hook globally.
   git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
+
+  # Install enabledPlugins from settings.json (idempotent: skip if already installed).
+  if [[ -f "$CONFIG_DIR/settings.json" ]]; then
+    local plugins
+    plugins=$(python3 -c "import json; d=json.load(open('$CONFIG_DIR/settings.json')); print(' '.join((d.get('enabledPlugins') or {}).keys()))" 2>/dev/null || true)
+    local installed
+    installed=$(claude plugin list 2>/dev/null | awk 'NR>1 {print $1}' || true)
+    for p in $plugins; do
+      if ! echo "$installed" | grep -qF "$p"; then
+        echo "==> Installing plugin: $p"
+        claude plugin install "$p" || echo "WARN: plugin install $p failed"
+      fi
+    done
+  fi
 }
 
 # 4. Start squid (after render_squid_conf).
