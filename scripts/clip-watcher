@@ -1,0 +1,28 @@
+#!/bin/bash
+# clip-watcher — WSL-side. Watches the container's clipboard outbox; pipes
+# each new write to Windows clip.exe. Single-instance; idempotent restart.
+#
+# Started by bootstrap.sh in the background. Survives terminal close.
+
+set -e
+FILE="/mnt/e/Projects/.claude-clipboard/out"
+CLIP_EXE="/mnt/c/Windows/System32/clip.exe"
+LOG="/tmp/claude-clip-watcher.log"
+
+mkdir -p "$(dirname "$FILE")"
+touch "$FILE"
+
+# Self-rotate log if huge.
+if [[ -f "$LOG" && $(stat -c %s "$LOG") -gt 1048576 ]]; then
+  : > "$LOG"
+fi
+
+echo "[$(date -Iseconds)] watcher starting, watching $FILE" >> "$LOG"
+
+while inotifywait -qq -e close_write "$FILE"; do
+  bytes=$(stat -c %s "$FILE" 2>/dev/null || echo 0)
+  if [[ "$bytes" -gt 0 ]]; then
+    "$CLIP_EXE" < "$FILE"
+    echo "[$(date -Iseconds)] copied $bytes bytes to Windows clipboard" >> "$LOG"
+  fi
+done

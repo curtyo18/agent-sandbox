@@ -46,10 +46,12 @@ COPY wrappers/git-audit-wrapper           /usr/local/bin/git-audit-wrapper
 COPY wrappers/audit-shell.sh              /usr/local/bin/audit-shell.sh
 COPY squid.conf.template                  /etc/squid/squid.conf.template
 COPY entrypoint.sh                        /usr/local/bin/entrypoint.sh
+COPY scripts/clip                         /usr/local/bin/clip
 RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/git-audit-wrapper \
                /usr/local/bin/audit-shell.sh \
-               /usr/local/bin/entrypoint.sh
+               /usr/local/bin/entrypoint.sh \
+               /usr/local/bin/clip
 
 # Environment: TZ for work-hours-guard, proxy for all HTTPS-aware tools.
 ENV TZ=Europe/London \

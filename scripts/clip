@@ -1,0 +1,7 @@
+#!/bin/bash
+# clip — write stdin to the clipboard outbox (host-visible).
+# A WSL-side watcher (scripts/clip-watcher) picks this up and pipes to clip.exe.
+set -e
+FILE=/projects/.claude-clipboard/out
+mkdir -p "$(dirname "$FILE")"
+cat > "$FILE"

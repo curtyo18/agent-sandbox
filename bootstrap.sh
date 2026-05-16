@@ -72,6 +72,21 @@ fi
 echo "==> Installing cbox helper to /usr/local/bin"
 sudo ln -sf "$REPO_DIR/scripts/cbox" /usr/local/bin/cbox
 
+echo "==> Ensuring inotify-tools is installed (for clipboard watcher)"
+if ! command -v inotifywait >/dev/null; then
+  sudo apt-get install -y -qq inotify-tools
+fi
+
+echo "==> Installing clip-watcher + starting in background"
+sudo ln -sf "$REPO_DIR/scripts/clip-watcher" /usr/local/bin/claude-clip-watcher
+if ! pgrep -f /usr/local/bin/claude-clip-watcher >/dev/null; then
+  nohup /usr/local/bin/claude-clip-watcher >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+  echo "    started; log at /tmp/claude-clip-watcher.log"
+else
+  echo "    already running"
+fi
+
 echo
 echo "Done. To use:"
 echo "  cbox             bash shell in /projects"

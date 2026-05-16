@@ -104,6 +104,22 @@ When you intentionally need to do something a guard blocks:
 
 Every override is itself audit-logged with a distinct `reason` field, so they're discoverable in the SessionStart surface next time you start a claude session.
 
+## Copy to host clipboard from inside the container
+
+Inside the container, pipe to `clip`:
+
+```bash
+echo "stuff" | clip
+git log --oneline -5 | clip
+clip < some-file.txt
+```
+
+That writes to `/projects/.claude-clipboard/out`. A WSL-side watcher (`claude-clip-watcher`, started by `bootstrap.sh` in the background) picks up the change and pipes it to Windows `clip.exe`. Your host clipboard now has the content.
+
+The watcher only fires on writes to that one file — your normal Ctrl+C / Ctrl+V on the host is untouched. Last write wins, same as any other clipboard set.
+
+Watcher log: `/tmp/claude-clip-watcher.log` in WSL. Restart manually with `nohup /usr/local/bin/claude-clip-watcher >/dev/null 2>&1 &` if it ever dies; bootstrap re-runs are idempotent.
+
 ## Inspecting the audit log
 
 The audit log lives at `/audit/YYYY-MM-DD.jsonl` inside the container, which is bind-mounted from `<host-projects>/.claude-audit/YYYY-MM-DD.jsonl` on the host — so you can read it from either side without entering the container.
