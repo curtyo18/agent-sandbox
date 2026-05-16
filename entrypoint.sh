@@ -95,6 +95,21 @@ sync_config() {
   fi
   gh auth setup-git 2>/dev/null || true
 
+  # Bash function that wraps `claude` with --dangerously-skip-permissions.
+  # Container guard rails (squid, gh wrapper, secret-scan) are the safety net.
+  # Function (not alias) so all args after `claude ...` pass through verbatim via "$@".
+  local bashrc="$CLAUDE_HOME/.bashrc"
+  if ! grep -q 'claude --dangerously-skip-permissions' "$bashrc" 2>/dev/null; then
+    cat >> "$bashrc" <<'EOF'
+
+# Auto-add --dangerously-skip-permissions to interactive `claude` invocations.
+# Sandbox guard rails (squid allowlist, gh wrapper, secret-scan) are the safety net.
+claude() {
+  command claude --dangerously-skip-permissions "$@"
+}
+EOF
+  fi
+
   # Mark first-run onboarding as complete in /home/claude/.claude.json.
   # Without this, claude shows the "Select login method" wizard on every container recreate
   # (the file lives outside the claude-cfg-cache volume, so it doesn't persist).
