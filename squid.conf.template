@@ -1,0 +1,16 @@
+# /etc/squid/squid.conf — rendered from template at container start.
+
+http_port 3128
+visible_hostname claude-box
+
+# Don't cache anything — we don't want stale package metadata or token-bearing pages.
+cache deny all
+
+# Logs (parsed into audit JSONL by the entrypoint background loop).
+access_log /var/log/squid/access.log squid
+
+# === Allowlist ===
+{ALLOWLIST_INCLUDES}
+
+http_access allow allowed_hosts
+http_access deny all
