@@ -65,6 +65,18 @@ Spec considered N parallel containers for parallel agent dispatches. Rejected: v
 
 **Trade-off:** systemd-in-WSL is relatively new (2022+) and occasionally has quirks (cgroup v1 vs v2, some services that expect a "real" boot). For our minimal needs (docker.service) it's stable.
 
+## `--dangerously-skip-permissions` in this sandbox
+
+Claude Code's permission system was designed assuming claude runs on a developer's host machine where mistakes can damage the host. In that environment, prompting before every Bash command and every file edit is the right default.
+
+Here the host is the container. The container can only touch `/projects` (bind mount of host's workspace), can only reach hosts on the squid allowlist, can't run destructive `gh` operations (wrapper blocks), can't commit secrets (pre-commit hook blocks), and every command is captured in the audit log. The blast radius is small.
+
+In that environment the permission prompts buy nothing. They add ~1 round-trip of friction per Bash call, which dominates session experience. Bypassing them via `--dangerously-skip-permissions` (in `cbox -c`), `permissions.defaultMode: bypassPermissions` (in settings), and a `claude()` shell function (in `.bashrc`) means claude can work end-to-end without interruption.
+
+The real safety mechanisms — squid, gh wrapper, secret-scan, audit — are at a lower level than prompts and continue to enforce regardless of what the agent or the user accepts.
+
+**When this would be the wrong call:** if the container ever ran without those guard rails (squid disabled, wrapper removed), bypass mode would lose its safety net. Re-introducing prompts would be the right move at that point.
+
 ## squid in-container, not host-side
 
 Could have run squid on the WSL host and pointed the container at it via a published port.

@@ -35,6 +35,18 @@ function claude {
 }
 ```
 
+## Permission prompts: bypassed by design
+
+`cbox -c` launches claude with `--dangerously-skip-permissions`, and `agent-config/settings.json` sets `permissions.defaultMode: bypassPermissions` plus `skipDangerousModePermissionPrompt: true`. Inside the container's shell, a `claude()` bash function also injects `--dangerously-skip-permissions` for any manual `claude` invocation. The container is the safety net; the prompts add friction without adding safety here.
+
+The sandbox guard rails still enforce regardless: squid still blocks non-allowlisted egress, the `gh` wrapper still blocks destructive ops (`repo delete`, visibility flip, etc.), the pre-commit hook still blocks secret commits, and the audit log still captures everything. See [architecture.md](architecture.md) for the reasoning.
+
+## Dev server ports
+
+Container publishes `127.0.0.1:8000-8099 → container:8000-8099`. Bind any dev server to a port in that range and it's reachable from the host browser at `http://localhost:<port>/`. `agent-config/CLAUDE.md` tells in-container claude sessions to default to that range.
+
+To bind a port outside the range you'd recreate the container with `-p` mappings — easier to just pick a free port in 8000-8099.
+
 ## Multiple concurrent sessions
 
 `docker exec` is multiplex-safe. Open as many shells as you want; each `claude` invocation is its own process. They share the same filesystem (`/projects`, `/home/claude/.claude`), the same audit log (`/audit/YYYY-MM-DD.jsonl`), and the same OAuth token.
