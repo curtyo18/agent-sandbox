@@ -56,6 +56,7 @@ docker run -d \
   -v "$AUDIT_HOST_PATH:/audit" \
   -v claude-auth:/home/claude/.claude-auth \
   -v claude-cfg-cache:/home/claude/.claude \
+  -v claude-gh-config:/home/claude/.config \
   "$IMAGE_TAG"
 
 # If PAT is on host, copy it into the auth volume now (one-time wiring).
