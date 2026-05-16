@@ -106,17 +106,22 @@ Every override is itself audit-logged with a distinct `reason` field, so they're
 
 ## Copy to host clipboard from inside the container
 
-Inside the container, pipe to `clip`:
+Inside the container:
 
 ```bash
-echo "stuff" | clip
+echo "stuff" | clip            # container → host clipboard
 git log --oneline -5 | clip
 clip < some-file.txt
+
+URL=$(paste)                   # host clipboard → container (one-shot, current value)
+paste > /tmp/saved.txt
 ```
 
-That writes to `/projects/.claude-clipboard/out`. A WSL-side watcher (`claude-clip-watcher`, started by `bootstrap.sh` in the background) picks up the change and pipes it to Windows `clip.exe`. Your host clipboard now has the content.
+How it works: both commands talk to a tiny WSL-side watcher (`claude-clip-watcher`, started by `bootstrap.sh` in the background) via files in `/projects/.claude-clipboard/`. The watcher pipes outbound text to Windows `clip.exe` and captures inbound clipboard via `Get-Clipboard`.
 
-The watcher only fires on writes to that one file — your normal Ctrl+C / Ctrl+V on the host is untouched. Last write wins, same as any other clipboard set.
+The watcher fires **only** when the container writes a sentinel file — your normal Ctrl+C / Ctrl+V on the host is untouched and there's no clipboard polling (so password-manager / clipboard-monitor apps don't get noisy).
+
+`paste` is a one-shot snapshot of the current Windows clipboard at the moment you ask. If the clipboard changes after that, you call `paste` again.
 
 Watcher log: `/tmp/claude-clip-watcher.log` in WSL. Restart manually with `nohup /usr/local/bin/claude-clip-watcher >/dev/null 2>&1 &` if it ever dies; bootstrap re-runs are idempotent.
 

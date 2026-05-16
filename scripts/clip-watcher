@@ -1,28 +1,42 @@
 #!/bin/bash
-# clip-watcher — WSL-side. Watches the container's clipboard outbox; pipes
-# each new write to Windows clip.exe. Single-instance; idempotent restart.
+# clip-watcher — WSL-side bridge for the container's clipboard.
+# Watches the host-visible clipboard directory; dispatches by filename:
+#   out      → container wrote outgoing text; pipe to Windows clip.exe
+#   request  → container asks for clipboard; capture via PowerShell, write response
 #
 # Started by bootstrap.sh in the background. Survives terminal close.
 
 set -e
-FILE="/mnt/e/Projects/.claude-clipboard/out"
+DIR="/mnt/e/Projects/.claude-clipboard"
 CLIP_EXE="/mnt/c/Windows/System32/clip.exe"
+POWERSHELL="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 LOG="/tmp/claude-clip-watcher.log"
 
-mkdir -p "$(dirname "$FILE")"
-touch "$FILE"
+mkdir -p "$DIR"
+touch "$DIR/out"
 
 # Self-rotate log if huge.
 if [[ -f "$LOG" && $(stat -c %s "$LOG") -gt 1048576 ]]; then
   : > "$LOG"
 fi
 
-echo "[$(date -Iseconds)] watcher starting, watching $FILE" >> "$LOG"
+echo "[$(date -Iseconds)] watcher starting, watching $DIR" >> "$LOG"
 
-while inotifywait -qq -e close_write "$FILE"; do
-  bytes=$(stat -c %s "$FILE" 2>/dev/null || echo 0)
-  if [[ "$bytes" -gt 0 ]]; then
-    "$CLIP_EXE" < "$FILE"
-    echo "[$(date -Iseconds)] copied $bytes bytes to Windows clipboard" >> "$LOG"
-  fi
+# Watch the directory for create + close_write. Dispatch on filename.
+inotifywait -mq -e create -e close_write --format '%f %e' "$DIR" |
+while read -r file _events; do
+  case "$file" in
+    out)
+      bytes=$(stat -c %s "$DIR/out" 2>/dev/null || echo 0)
+      if [[ "$bytes" -gt 0 ]]; then
+        "$CLIP_EXE" < "$DIR/out"
+        echo "[$(date -Iseconds)] out → clipboard ($bytes bytes)" >> "$LOG"
+      fi
+      ;;
+    request)
+      "$POWERSHELL" -NoProfile -Command 'Get-Clipboard -Raw' 2>/dev/null | sed 's/\r$//' > "$DIR/response"
+      rm -f "$DIR/request"
+      echo "[$(date -Iseconds)] clipboard → response" >> "$LOG"
+      ;;
+  esac
 done

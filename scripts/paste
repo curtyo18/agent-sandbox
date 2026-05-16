@@ -1,0 +1,17 @@
+#!/bin/bash
+# paste — read Windows clipboard via the WSL-side watcher.
+# Writes a request sentinel, waits for response, prints it.
+set -e
+DIR=/projects/.claude-clipboard
+mkdir -p "$DIR"
+rm -f "$DIR/response"
+touch "$DIR/request"
+for _ in $(seq 1 50); do
+  sleep 0.1
+  if [[ ! -e "$DIR/request" && -e "$DIR/response" ]]; then
+    cat "$DIR/response"
+    exit 0
+  fi
+done
+echo "paste: timeout waiting for WSL clipboard watcher (is it running?)" >&2
+exit 1
