@@ -37,7 +37,7 @@ RUN userdel -r node 2>/dev/null || true && \
     groupdel node 2>/dev/null || true && \
     groupadd -g ${GID} claude && \
     useradd -m -u ${UID} -g ${GID} -s /bin/bash claude && \
-    mkdir -p /home/claude/.claude /home/claude/.claude-auth /audit /projects && \
+    mkdir -p /home/claude/.claude /home/claude/.claude-auth /home/claude/.config /audit /projects && \
     chown -R claude:claude /home/claude /audit /projects
 
 # Wrappers + entrypoint + squid template — copied from the repo at build time.
