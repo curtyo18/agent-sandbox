@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# gh wrapper: blocks destructive operations unless CLAUDE_UNLOCK_DESTRUCTIVE=1.
+# Always logs to $CLAUDE_AUDIT_LOG (defaults to /audit/$(date +%F).jsonl).
+
+set -euo pipefail
+
+REAL_GH="${CLAUDE_REAL_GH:-/usr/bin/gh}"
+AUDIT_LOG="${CLAUDE_AUDIT_LOG:-/audit/$(date +%F).jsonl}"
+CWD="${PWD}"
+TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+log() {
+  local action="$1" blocked="$2" reason="${3:-}"
+  mkdir -p "$(dirname "$AUDIT_LOG")"
+  printf '{"ts":"%s","src":"gh-wrapper","action":"gh %s","cwd":"%s","blocked":%s,"reason":"%s"}\n' \
+    "$TS" "$action" "$CWD" "$blocked" "$reason" >> "$AUDIT_LOG"
+}
+
+joined_args="$*"
+
+# Patterns to BLOCK unless CLAUDE_UNLOCK_DESTRUCTIVE=1.
+BLOCK_PATTERNS=(
+  'repo edit [^ ]+ --visibility public'
+  'repo edit --visibility public'
+  'repo delete'
+  'repo transfer'
+  'repo archive'
+  'api -X (PATCH|DELETE) .*-f visibility=public'
+  'api -X (PATCH|DELETE) /repos/[^ ]+$'
+)
+
+is_blocked=0
+reason=""
+for pat in "${BLOCK_PATTERNS[@]}"; do
+  if [[ "$joined_args" =~ $pat ]]; then
+    is_blocked=1
+    reason="$pat"
+    break
+  fi
+done
+
+if [[ $is_blocked -eq 1 ]]; then
+  if [[ "${CLAUDE_UNLOCK_DESTRUCTIVE:-0}" == "1" ]]; then
+    log "$joined_args" "false" "unlock-used:$reason"
+    exec "$REAL_GH" "$@"
+  else
+    log "$joined_args" "true" "$reason"
+    cat >&2 <<MSG
+BLOCKED: gh $joined_args
+  Matched guard rule: $reason
+  To proceed: CLAUDE_UNLOCK_DESTRUCTIVE=1 gh $joined_args
+MSG
+    exit 75
+  fi
+fi
+
+# Benign — log and pass through.
+log "$joined_args" "false" ""
+exec "$REAL_GH" "$@"
