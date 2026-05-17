@@ -65,6 +65,21 @@ Spec considered N parallel containers for parallel agent dispatches. Rejected: v
 
 **Trade-off:** systemd-in-WSL is relatively new (2022+) and occasionally has quirks (cgroup v1 vs v2, some services that expect a "real" boot). For our minimal needs (docker.service) it's stable.
 
+## In-container sudo is `NOPASSWD: ALL`
+
+The `claude` user inside the container has unrestricted passwordless sudo. This isn't a "trust the agent fully" stance — it's an honest recognition that:
+
+- The original sudoers allowlist included `/bin/bash`, which means `sudo bash -c '<anything>'` already grants full root regardless of what else is on the list.
+- Maintaining an allowlist of `apt-get`, `pip`, `systemctl`, etc. would just be friction without adding any security envelope, since the bash escape hatch is already open.
+
+The real safety boundary is **the container itself**, not what the in-container user can do:
+- `squid` allowlist still blocks egress to non-allowed hosts (squid is rendered from config at start; in-container root can disable it but that breaks the *agent's* ability to reach anything, not the host).
+- `/projects` bind-mount scope still limits what the agent can read/write on the host filesystem.
+- `gh` wrapper still blocks destructive GitHub operations (in-container root can replace the wrapper, but at that point the agent is intentionally evading its own guard rails — a signal worth surfacing in the audit log).
+- Audit log still captures every command.
+
+If you ever wanted to actively fence the agent out of system mutations inside the container, removing `/bin/bash` from sudoers would be the first step — and then maintaining a narrow allowlist becomes meaningful. Today, that fence is intentionally absent.
+
 ## `--dangerously-skip-permissions` in this sandbox
 
 Claude Code's permission system was designed assuming claude runs on a developer's host machine where mistakes can damage the host. In that environment, prompting before every Bash command and every file edit is the right default.

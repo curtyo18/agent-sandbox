@@ -63,8 +63,13 @@ ENV TZ=Europe/London \
     BASH_ENV=/usr/local/bin/audit-shell.sh \
     PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
-# Allow claude user to start squid (and tail its log) without a password.
-RUN echo 'claude ALL=(root) NOPASSWD: /usr/sbin/squid, /bin/bash, /usr/bin/tail, /bin/cp' > /etc/sudoers.d/claude && \
+# Passwordless sudo for the claude user.
+# Originally an allowlist of /usr/sbin/squid, /bin/bash, /usr/bin/tail, /bin/cp — but having
+# /bin/bash in the list means `sudo bash -c '<anything>'` already grants full root, so the
+# allowlist was friction without security. Made it honest: NOPASSWD: ALL.
+# The real safety envelope is the container boundary (squid allowlist, bind-mount scope, gh
+# wrapper, secret-scan hook). Those still apply regardless of in-container root.
+RUN echo 'claude ALL=(root) NOPASSWD: ALL' > /etc/sudoers.d/claude && \
     chmod 440 /etc/sudoers.d/claude
 
 USER claude
