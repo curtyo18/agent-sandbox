@@ -128,6 +128,24 @@ See [anthropics/claude-code#4714](https://github.com/anthropics/claude-code/issu
 
 **Fix.** Added `"skipDangerousModePermissionPrompt": true` to `agent-config/settings.json`. See [anthropics/claude-code#25503](https://github.com/anthropics/claude-code/issues/25503).
 
+### 10. `inotify` doesn't fire on WSL2 9p mounts (`/mnt/c`, `/mnt/e`, …)
+
+**Symptom.** Clipboard bridge first version used `inotifywait` to watch `/mnt/e/Projects/.claude-clipboard/out`. Container writes to that file (via its `/projects` bind mount), watcher should fire and pipe to `clip.exe`. It didn't — watcher silently sat there, no events.
+
+**Cause.** WSL2's 9p filesystem (used to surface Windows drives at `/mnt/<letter>/`) doesn't propagate inotify events for changes made on the Windows side. Even though Docker's bind-mount writes go *through* WSL2's kernel, the path is on a 9p mount and inotify on that path doesn't see anything.
+
+**Fix.** Switched the watcher to polling (`stat -c %Y` on the watched file every 500 ms; trigger when mtime changes). Slower in theory, imperceptible in practice for clipboard use; works reliably across the 9p boundary. Code in [`scripts/clip-watcher`](../scripts/clip-watcher).
+
+### 11. `settings.json` clobber-on-pull
+
+**Symptom.** Claude writes runtime preferences (theme, wizard-done state, etc.) into `~/.claude/settings.json`. The repo also tracks `agent-config/settings.json` as the source of truth for our config (statusLine, permissions, plugins, etc.). On every `git pull` in the container, either (a) pull aborts because local changes conflict, or (b) we discard local and the user's recently-set preferences vanish. Statusline disappearing is the most-visible symptom.
+
+**Tried + rejected.** Moved config to `settings.local.json` first — turns out that path is *only* read at the **project** level (`<project>/.claude/`); at the user level (`~/.claude/`), only `settings.json` is read. Reverted.
+
+**Currently mitigated, not fixed.** When the file conflicts on pull, we manually `mv settings.json settings.json.bak` then `git checkout HEAD -- settings.json` to restore the repo's version. Claude rewrites whatever it cares about on next launch. This is fragile — every recovery loses user-set theme etc.
+
+**Proper fix (deferred).** Have the entrypoint deep-merge: load repo's `settings.json` as base, overlay any keys claude has written locally that we don't care about (`theme`, internal flags), force-overwrite the keys we control (`statusLine`, `enabledPlugins`, `permissions`, `effortLevel`). Use jq or python to do the merge. Tracked as a follow-up.
+
 ## Host-side gotchas (not in this repo's code, but bit us)
 
 - **BIOS virtualization off by default.** AMD CPUs need SVM Mode enabled in BIOS (Gigabyte: Tweaker → Advanced CPU Settings). WSL2 fails with `HCS_E_HYPERV_NOT_INSTALLED` until this is on.
