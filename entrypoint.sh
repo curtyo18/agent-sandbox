@@ -64,6 +64,23 @@ sync_config() {
     return 0
   fi
 
+  # Authenticate gh and register it as the git credential helper BEFORE any git operation,
+  # so the PAT is never embedded in a remote URL (would otherwise persist in .git/config).
+  if ! gh auth status >/dev/null 2>&1; then
+    HTTPS_PROXY="" HTTP_PROXY="" gh auth login --hostname github.com --git-protocol https --with-token <"$AUTH_DIR/github-pat" 2>/dev/null || true
+  fi
+  gh auth setup-git 2>/dev/null || true
+
+  # Migration: if an older entrypoint left a URL with embedded credentials, scrub it.
+  if [[ -d "$CONFIG_DIR/.git" ]]; then
+    local current_url
+    current_url="$(git -C "$CONFIG_DIR" remote get-url origin 2>/dev/null || true)"
+    if [[ "$current_url" == *"@github.com/"* ]]; then
+      git -C "$CONFIG_DIR" remote set-url origin "https://github.com/curtyo18/agent-config.git"
+      log_event "entrypoint" "config-remote-url-scrubbed" ""
+    fi
+  fi
+
   if [[ -d "$CONFIG_DIR/.git" ]]; then
     cd "$CONFIG_DIR"
     if ! HTTPS_PROXY="" HTTP_PROXY="" git pull --ff-only 2>>/tmp/git-pull.err; then
@@ -72,7 +89,7 @@ sync_config() {
     fi
   else
     if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 \
-      "https://x-access-token:${pat}@github.com/curtyo18/agent-config.git" \
+      "https://github.com/curtyo18/agent-config.git" \
       "$CONFIG_DIR" 2>>/tmp/git-clone.err
     then
       log_event "entrypoint" "config-clone-failed" "$(tail -1 /tmp/git-clone.err 2>/dev/null)"
@@ -88,12 +105,6 @@ sync_config() {
   git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
   git config --global user.email "curtyo18@gmail.com" 2>/dev/null || true
   git config --global user.name "curtyo18" 2>/dev/null || true
-
-  # Auth gh with the PAT and register it as git credential helper (idempotent).
-  if [[ -s "$AUTH_DIR/github-pat" ]] && ! gh auth status >/dev/null 2>&1; then
-    cat "$AUTH_DIR/github-pat" | gh auth login --hostname github.com --git-protocol https --with-token 2>/dev/null || true
-  fi
-  gh auth setup-git 2>/dev/null || true
 
   # Bash function that wraps `claude` with --dangerously-skip-permissions.
   # Container guard rails (squid, gh wrapper, secret-scan) are the safety net.
