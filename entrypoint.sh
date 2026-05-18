@@ -183,19 +183,10 @@ start_tailscale_ttyd() {
     log_event "entrypoint" "tailscaled-started" ""
   fi
 
-  local creds_file="$AUTH_DIR/ttyd-creds"
-  if [[ ! -s "$creds_file" ]]; then
-    local pw
-    pw="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
-    umask 077
-    printf 'claude:%s\n' "$pw" > "$creds_file"
-    log_event "entrypoint" "ttyd-creds-generated" ""
-    echo "==> ttyd creds written to $creds_file (cat to retrieve)" >&2
-  fi
-
+  # ttyd basic auth is a thin second factor; tailnet membership is the real boundary.
   if ! pgrep -x ttyd >/dev/null 2>&1; then
     nohup ttyd -i lo -p 7681 -W \
-      -c "$(cat "$creds_file")" \
+      -c curt:curt \
       /usr/local/bin/ttyd-entry \
       >>/var/log/ttyd.log 2>&1 &
     log_event "entrypoint" "ttyd-started" ""
