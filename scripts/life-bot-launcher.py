@@ -75,7 +75,7 @@ def wake_session() -> None:
     subprocess.run(
         [
             "tmux", "new-session", "-d", "-s", SESSION_NAME,
-            "bash", "-lc", "cd /projects/life && claude",
+            "bash", "-lc", "cd /projects/life && claude --remote-control life-bot",
         ],
         check=True,
         timeout=5,

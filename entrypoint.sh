@@ -133,6 +133,7 @@ if os.path.exists(p):
     try: d = json.load(open(p))
     except: d = {}
 d['hasCompletedOnboarding'] = True
+d.setdefault('projects', {}).setdefault('/projects/life', {})['hasTrustDialogAccepted'] = True
 json.dump(d, open(p, 'w'), indent=2)
 " 2>/dev/null || true
 
