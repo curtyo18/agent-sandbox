@@ -164,10 +164,49 @@ start_squid() {
   done' &
 }
 
+# 5. Start tailscaled (userspace mode) + ttyd (web terminal bound to loopback).
+# HTTPS_PROXY must be in tailscaled's process env or DERP-map fetch fails
+# (https://github.com/tailscale/tailscale/issues/10235), so sudo -E preserves it.
+# ttyd creds auto-generated on first run, stored in AUTH_DIR (persistent volume).
+start_tailscale_ttyd() {
+  sudo mkdir -p /var/lib/tailscale /var/run/tailscale
+  sudo chown root:root /var/lib/tailscale
+
+  if ! pgrep -x tailscaled >/dev/null 2>&1; then
+    sudo -E nohup tailscaled \
+      --tun=userspace-networking \
+      --statedir=/var/lib/tailscale \
+      --socket=/var/run/tailscale/tailscaled.sock \
+      --socks5-server=localhost:1055 \
+      --outbound-http-proxy-listen=localhost:1055 \
+      >>/var/log/tailscaled.log 2>&1 &
+    log_event "entrypoint" "tailscaled-started" ""
+  fi
+
+  local creds_file="$AUTH_DIR/ttyd-creds"
+  if [[ ! -s "$creds_file" ]]; then
+    local pw
+    pw="$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
+    umask 077
+    printf 'claude:%s\n' "$pw" > "$creds_file"
+    log_event "entrypoint" "ttyd-creds-generated" ""
+    echo "==> ttyd creds written to $creds_file (cat to retrieve)" >&2
+  fi
+
+  if ! pgrep -x ttyd >/dev/null 2>&1; then
+    nohup ttyd -i lo -p 7681 -W \
+      -c "$(cat "$creds_file")" \
+      /usr/local/bin/ttyd-entry \
+      >>/var/log/ttyd.log 2>&1 &
+    log_event "entrypoint" "ttyd-started" ""
+  fi
+}
+
 # === Run sequence ===
 sync_config
 render_squid_conf
 start_squid
+start_tailscale_ttyd
 log_event "entrypoint" "ready" ""
 
 # 5. Stay alive forever.

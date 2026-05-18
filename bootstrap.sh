@@ -57,6 +57,7 @@ docker run -d \
   -v claude-auth:/home/claude/.claude-auth \
   -v claude-cfg-cache:/home/claude/.claude \
   -v claude-gh-config:/home/claude/.config \
+  -v claude-tailscale-state:/var/lib/tailscale \
   "$IMAGE_TAG"
 
 # If PAT is on host, copy it into the auth volume now (one-time wiring).

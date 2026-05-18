@@ -8,9 +8,22 @@ RUN apt-get update && \
         squid \
         tini \
         jq \
+        tmux \
         tzdata \
         procps && \
     rm -rf /var/lib/apt/lists/*
+
+# Tailscale: official apt repo (userspace-networking mode used at runtime — no /dev/net/tun needed).
+RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null && \
+    curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends tailscale && \
+    rm -rf /var/lib/apt/lists/*
+
+# ttyd: pinned binary release (https://github.com/tsl0922/ttyd/releases).
+ARG TTYD_VERSION=1.7.7
+RUN curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" -o /usr/local/bin/ttyd && \
+    chmod 0755 /usr/local/bin/ttyd
 
 # gh CLI from official keyring + apt repo.
 RUN mkdir -p -m 755 /etc/apt/keyrings && \
@@ -48,12 +61,14 @@ COPY squid.conf.template                  /etc/squid/squid.conf.template
 COPY entrypoint.sh                        /usr/local/bin/entrypoint.sh
 COPY scripts/clip                         /usr/local/bin/clip
 COPY scripts/paste                        /usr/local/bin/paste
+COPY scripts/ttyd-entry                   /usr/local/bin/ttyd-entry
 RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/git-audit-wrapper \
                /usr/local/bin/audit-shell.sh \
                /usr/local/bin/entrypoint.sh \
                /usr/local/bin/clip \
-               /usr/local/bin/paste
+               /usr/local/bin/paste \
+               /usr/local/bin/ttyd-entry
 
 # Environment: TZ for work-hours-guard, proxy for all HTTPS-aware tools.
 ENV TZ=Europe/London \
@@ -75,4 +90,4 @@ RUN echo 'claude ALL=(root) NOPASSWD: ALL' > /etc/sudoers.d/claude && \
 USER claude
 WORKDIR /projects
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
