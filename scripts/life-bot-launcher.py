@@ -44,6 +44,7 @@ def session_alive() -> bool:
     r = subprocess.run(
         ["tmux", "has-session", "-t", SESSION_NAME],
         capture_output=True,
+        timeout=2,
     )
     return r.returncode == 0
 
@@ -78,6 +79,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def log_message(self, fmt, *args):
+        # Quiet stderr; default would spam every request.
         pass
 
 
