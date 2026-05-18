@@ -179,7 +179,7 @@ start_tailscale_ttyd() {
       --socket=/var/run/tailscale/tailscaled.sock \
       --socks5-server=localhost:1055 \
       --outbound-http-proxy-listen=localhost:1055 \
-      >>/var/log/tailscaled.log 2>&1 &
+      >>/tmp/tailscaled.log 2>&1 &
     log_event "entrypoint" "tailscaled-started" ""
   fi
 
@@ -188,7 +188,7 @@ start_tailscale_ttyd() {
     nohup ttyd -i lo -p 7681 -W \
       -c curt:curt \
       /usr/local/bin/ttyd-entry \
-      >>/var/log/ttyd.log 2>&1 &
+      >>/tmp/ttyd.log 2>&1 &
     log_event "entrypoint" "ttyd-started" ""
   fi
 }
