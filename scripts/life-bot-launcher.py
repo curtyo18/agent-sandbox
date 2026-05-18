@@ -92,7 +92,16 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif self.path == "/wake":
-            wake_session()
+            try:
+                wake_session()
+            except Exception as e:
+                msg = f"wake failed: {e}\n".encode("utf-8")
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.send_header("Content-Length", str(len(msg)))
+                self.end_headers()
+                self.wfile.write(msg)
+                return
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
