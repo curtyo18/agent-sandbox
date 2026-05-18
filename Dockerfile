@@ -56,6 +56,7 @@ COPY entrypoint.sh                        /usr/local/bin/entrypoint.sh
 COPY scripts/clip                         /usr/local/bin/clip
 COPY scripts/paste                        /usr/local/bin/paste
 COPY scripts/ttyd-entry                   /usr/local/bin/ttyd-entry
+COPY scripts/ttyd-index.html              /usr/local/share/ttyd-index.html
 RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/git-audit-wrapper \
                /usr/local/bin/audit-shell.sh \

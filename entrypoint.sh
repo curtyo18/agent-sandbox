@@ -176,6 +176,7 @@ start_ttyd() {
   # real boundary; serve is tailnet-only, funnel is off.
   if ! pgrep -x ttyd >/dev/null 2>&1; then
     nohup ttyd -p 7681 -W \
+      -I /usr/local/share/ttyd-index.html \
       /usr/local/bin/ttyd-entry \
       >>/tmp/ttyd.log 2>&1 &
     log_event "entrypoint" "ttyd-started" ""
