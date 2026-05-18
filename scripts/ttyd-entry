@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# ttyd-entry — what ttyd spawns for each phone/web connection.
-# Behavior: cd to /projects/life, attach to (or create) the persistent
-# "main" tmux session, which itself auto-runs `claude` on creation.
-# Disconnect leaves tmux + claude running; reconnect re-attaches.
-
-set -u
-cd /projects/life || cd /projects
-exec tmux new-session -A -s main "claude --dangerously-skip-permissions"

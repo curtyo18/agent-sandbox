@@ -51,7 +51,6 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   --user 1000:1000 \
-  -p 127.0.0.1:7681:7681 \
   -p 127.0.0.1:8000-8099:8000-8099 \
   -v "$PROJECTS_HOST_PATH:/projects" \
   -v "$AUDIT_HOST_PATH:/audit" \

@@ -13,12 +13,6 @@ RUN apt-get update && \
         procps && \
     rm -rf /var/lib/apt/lists/*
 
-# ttyd: pinned binary release (https://github.com/tsl0922/ttyd/releases).
-# Reachable via host-side Tailscale Serve which proxies to docker-published 127.0.0.1:7681.
-ARG TTYD_VERSION=1.7.7
-RUN curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" -o /usr/local/bin/ttyd && \
-    chmod 0755 /usr/local/bin/ttyd
-
 # gh CLI from official keyring + apt repo.
 RUN mkdir -p -m 755 /etc/apt/keyrings && \
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && \
@@ -55,15 +49,12 @@ COPY squid.conf.template                  /etc/squid/squid.conf.template
 COPY entrypoint.sh                        /usr/local/bin/entrypoint.sh
 COPY scripts/clip                         /usr/local/bin/clip
 COPY scripts/paste                        /usr/local/bin/paste
-COPY scripts/ttyd-entry                   /usr/local/bin/ttyd-entry
-COPY scripts/ttyd-index.html              /usr/local/share/ttyd-index.html
 RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/git-audit-wrapper \
                /usr/local/bin/audit-shell.sh \
                /usr/local/bin/entrypoint.sh \
                /usr/local/bin/clip \
-               /usr/local/bin/paste \
-               /usr/local/bin/ttyd-entry
+               /usr/local/bin/paste
 
 # Environment: TZ for work-hours-guard, proxy for all HTTPS-aware tools.
 ENV TZ=Europe/London \
