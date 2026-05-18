@@ -167,33 +167,12 @@ start_squid() {
   done' &
 }
 
-# 5. Start tailscaled (userspace mode) + ttyd (web terminal bound to loopback).
-# HTTPS_PROXY must be in tailscaled's process env or DERP-map fetch fails
-# (https://github.com/tailscale/tailscale/issues/10235), so sudo -E preserves it.
-# ttyd creds auto-generated on first run, stored in AUTH_DIR (persistent volume).
-start_tailscale_ttyd() {
-  sudo mkdir -p /var/lib/tailscale /var/run/tailscale
-  sudo chown root:root /var/lib/tailscale
-
-  # Wait for squid to accept connections — tailscaled's first control-plane
-  # fetch goes through HTTPS_PROXY, and a connection refused at startup sticks
-  # the daemon in a logged-out state until manual intervention.
-  for _ in $(seq 1 30); do
-    if (echo > /dev/tcp/127.0.0.1/3128) 2>/dev/null; then break; fi
-    sleep 0.2
-  done
-
-  if ! pgrep -x tailscaled >/dev/null 2>&1; then
-    sudo -E nohup tailscaled \
-      --statedir=/var/lib/tailscale \
-      --socket=/var/run/tailscale/tailscaled.sock \
-      >>/tmp/tailscaled.log 2>&1 &
-    log_event "entrypoint" "tailscaled-started" ""
-  fi
-
-  # ttyd basic auth is a thin second factor; tailnet membership is the real boundary.
+# 5. Start ttyd. Bound to all interfaces; reachable from host because docker
+# publishes 127.0.0.1:7681. Tailscale Windows on the host runs `tailscale serve`
+# to put HTTPS in front and expose to the tailnet.
+start_ttyd() {
   if ! pgrep -x ttyd >/dev/null 2>&1; then
-    nohup ttyd -i lo -p 7681 -W \
+    nohup ttyd -p 7681 -W \
       -c curt:curt \
       /usr/local/bin/ttyd-entry \
       >>/tmp/ttyd.log 2>&1 &
@@ -205,7 +184,7 @@ start_tailscale_ttyd() {
 sync_config
 render_squid_conf
 start_squid
-start_tailscale_ttyd
+start_ttyd
 log_event "entrypoint" "ready" ""
 
 # 5. Stay alive forever.

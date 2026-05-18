@@ -9,20 +9,12 @@ RUN apt-get update && \
         tini \
         jq \
         tmux \
-        iproute2 \
-        iptables \
         tzdata \
         procps && \
     rm -rf /var/lib/apt/lists/*
 
-# Tailscale: official apt repo (userspace-networking mode used at runtime — no /dev/net/tun needed).
-RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null && \
-    curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list > /dev/null && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends tailscale && \
-    rm -rf /var/lib/apt/lists/*
-
 # ttyd: pinned binary release (https://github.com/tsl0922/ttyd/releases).
+# Reachable via host-side Tailscale Serve which proxies to docker-published 127.0.0.1:7681.
 ARG TTYD_VERSION=1.7.7
 RUN curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.x86_64" -o /usr/local/bin/ttyd && \
     chmod 0755 /usr/local/bin/ttyd
