@@ -9,6 +9,8 @@ RUN apt-get update && \
         tini \
         jq \
         tmux \
+        iproute2 \
+        iptables \
         tzdata \
         procps && \
     rm -rf /var/lib/apt/lists/*
