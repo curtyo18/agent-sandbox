@@ -53,6 +53,7 @@ docker run -d \
   --user 1000:1000 \
   --device /dev/net/tun \
   --cap-add NET_ADMIN \
+  --sysctl net.ipv4.conf.all.src_valid_mark=1 \
   -p 127.0.0.1:8000-8099:8000-8099 \
   -v "$PROJECTS_HOST_PATH:/projects" \
   -v "$AUDIT_HOST_PATH:/audit" \
