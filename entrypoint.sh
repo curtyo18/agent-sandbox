@@ -121,9 +121,10 @@ claude() {
 EOF
   fi
 
-  # Mark first-run onboarding as complete in /home/claude/.claude.json.
-  # Without this, claude shows the "Select login method" wizard on every container recreate
-  # (the file lives outside the claude-cfg-cache volume, so it doesn't persist).
+  # Mark first-run onboarding as complete in /home/claude/.claude.json AND pre-seed
+  # workspace trust for every existing subdirectory of /projects. claude has no global
+  # "trust all" setting, only per-absolute-path. The file lives outside the
+  # claude-cfg-cache volume so it doesn't persist — re-seed on every container start.
   # See: https://github.com/anthropics/claude-code/issues/4714
   python3 -c "
 import json, os
@@ -133,7 +134,14 @@ if os.path.exists(p):
     try: d = json.load(open(p))
     except: d = {}
 d['hasCompletedOnboarding'] = True
-d.setdefault('projects', {}).setdefault('/projects/life', {})['hasTrustDialogAccepted'] = True
+projects = d.setdefault('projects', {})
+if os.path.isdir('/projects'):
+    for entry in os.listdir('/projects'):
+        if entry.startswith('.'):
+            continue
+        full = os.path.join('/projects', entry)
+        if os.path.isdir(full):
+            projects.setdefault(full, {})['hasTrustDialogAccepted'] = True
 json.dump(d, open(p, 'w'), indent=2)
 " 2>/dev/null || true
 
