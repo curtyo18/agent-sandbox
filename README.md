@@ -14,6 +14,7 @@ Sandboxed Claude Code CLI runtime: Linux container on WSL2 Ubuntu, allowlisted f
 - `wrappers/audit-shell.sh` — bash DEBUG-trap logger; sourced via `BASH_ENV`.
 - `bootstrap.ps1` — Windows entry point (enables WSL2, installs Ubuntu, hands off).
 - `bootstrap.sh` — Ubuntu side (installs Docker, builds image, runs container).
+- `scripts/life-bot-launcher.py` — tiny in-container HTTP utility (`:8088`) that, when hit from the user's phone via Tailscale, spawns or restarts a tmux session running `claude --remote-control life-bot` in `/projects/life`. See [`docs/architecture.md`](docs/architecture.md) → "Phone access via Tailscale".
 - `tests/test-gh-wrapper.sh` — unit-style test for the gh wrapper.
 
 Personal config (skills, hooks, CLAUDE.md, allowlist, gitleaks rules) lives in the **private** companion repo `agent-config`. The container clones it on start using a GitHub token stored on a Docker volume.

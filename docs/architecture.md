@@ -92,6 +92,39 @@ The real safety mechanisms — squid, gh wrapper, secret-scan, audit — are at 
 
 **When this would be the wrong call:** if the container ever ran without those guard rails (squid disabled, wrapper removed), bypass mode would lose its safety net. Re-introducing prompts would be the right move at that point.
 
+## Phone access via Tailscale
+
+To reach a `claude` session from a phone while out of the house, the sandbox runs a tiny in-container HTTP launcher (`scripts/life-bot-launcher.py`) on `127.0.0.1:8088` (published from the container to the WSL host's loopback). Tailscale Serve on the **Windows host** fronts it as HTTPS at `https://<hostname>.<tailnet>.ts.net/`, tailnet-only (funnel off). Phone taps the URL → launcher kills any prior `life-bot` tmux session and spawns a fresh one running `claude --remote-control life-bot` in `/projects/life` → the session auto-appears in the Claude mobile app's Code tab, where the actual chat UX lives.
+
+```
+[ Phone ] ──tailnet HTTPS──► [ Tailscale Serve (Windows) ]
+                                       │ proxy → 127.0.0.1:8088
+                                       ▼
+                          [ Docker port publish ] ──► [ launcher (in container) ]
+                                                              │ tmux new-session …
+                                                              ▼
+                                                  [ claude --remote-control life-bot ]
+                                                              │
+                                                              ▼
+                                       [ Claude mobile app, same logged-in account ]
+```
+
+### Why Tailscale on the Windows host, not in the container
+
+Spec assumed Tailscale would run in the container. Tried it — `--tun=userspace-networking` mode broke `tailscale serve` (TLS handshake EOF on every incoming connection); switching to kernel mode with `--device /dev/net/tun --cap-add NET_ADMIN --sysctl src_valid_mark=1` plus an `iproute2` install fixed routing but left a residual WSL+Docker NAT hairpin: small TCP responses worked, large TCP responses (the 700 KB ttyd HTML page in particular) stalled mid-stream because outbound responses leaked through the wrong interface despite the policy-routing table being correct.
+
+Host-side Tailscale sidesteps the hairpin entirely: the Windows Tailscale client is a battle-tested kernel-level WireGuard implementation, `tailscale serve` proxies into the docker-published port on Windows loopback (WSL2's automatic localhost forwarding makes the WSL-side port appear at Windows' `127.0.0.1`), and the only thing that has to be configured per-machine is one `tailscale serve --bg --https=443 http://127.0.0.1:8088` invocation (config persists in Tailscale's local state across reboots).
+
+The launcher's responses are <1 KB, so the in-container variant probably *would* have worked, but there's no compelling reason to take on the WSL+Docker NAT complexity for a single tiny endpoint.
+
+### Why claude-on-mobile, not a web terminal
+
+First attempt put a web terminal (`ttyd` + `tmux` + a custom mobile-keyboard chrome) in front of `claude`. Worked end-to-end but the interaction model was wrong — typing prompts on an iPhone soft-keyboard inside an xterm.js terminal is rough no matter how many `Ctrl`/`Esc`/arrow soft-keys you bolt on top. Anthropic's mobile Claude app does this UX better natively: voice input, image upload, threaded chat, push notifications, copy-paste that respects iOS conventions. Once `claude --remote-control <name>` ships a session to the mobile app for free, the right move is to let the mobile app be the UI and reduce the host-side surface to just "wake the session".
+
+### Why pre-seed workspace trust at entrypoint
+
+`claude` shows a one-time "Trust this folder?" prompt for any directory it hasn't seen — blocks session startup until answered, which means an auto-spawned `life-bot` session sits at the prompt forever and never registers with the mobile app. Claude has no global "trust all" setting; trust is per-absolute-path, persisted in `~/.claude.json` under `projects["<path>"].hasTrustDialogAccepted: true`. That file lives **outside** the `claude-cfg-cache` volume so it's reset on every container recreate — the existing entrypoint already re-seeds `hasCompletedOnboarding: true` for the same reason; extending the same block to also enumerate `/projects/*` and seed each subdirectory's trust state is the cheapest fix. Soft caveat: a new project dir added after container start needs a container restart to be auto-trusted.
+
 ## squid in-container, not host-side
 
 Could have run squid on the WSL host and pointed the container at it via a published port.
