@@ -167,10 +167,20 @@ start_squid() {
   done' &
 }
 
+# 5. Start the life-bot launcher (tiny HTTP server on :8088).
+start_launcher() {
+  if ! pgrep -f life-bot-launcher.py >/dev/null 2>&1; then
+    nohup python3 /usr/local/bin/life-bot-launcher.py \
+      >>/tmp/life-bot-launcher.log 2>&1 &
+    log_event "entrypoint" "launcher-started" ""
+  fi
+}
+
 # === Run sequence ===
 sync_config
 render_squid_conf
 start_squid
+start_launcher
 log_event "entrypoint" "ready" ""
 
 # 5. Stay alive forever.
