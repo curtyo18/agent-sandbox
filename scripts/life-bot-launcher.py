@@ -65,6 +65,23 @@ def render_status_page() -> bytes:
     return body.encode("utf-8")
 
 
+def wake_session() -> None:
+    """Kill any existing life-bot session, then spawn a fresh one running claude."""
+    subprocess.run(
+        ["tmux", "kill-session", "-t", SESSION_NAME],
+        capture_output=True,  # tolerate "no such session"
+        timeout=2,
+    )
+    subprocess.run(
+        [
+            "tmux", "new-session", "-d", "-s", SESSION_NAME,
+            "bash", "-lc", "cd /projects/life && claude",
+        ],
+        check=True,
+        timeout=5,
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
@@ -74,6 +91,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif self.path == "/wake":
+            wake_session()
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.end_headers()
         else:
             self.send_response(404)
             self.end_headers()
