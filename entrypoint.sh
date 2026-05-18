@@ -171,9 +171,11 @@ start_squid() {
 # publishes 127.0.0.1:7681. Tailscale Windows on the host runs `tailscale serve`
 # to put HTTPS in front and expose to the tailnet.
 start_ttyd() {
+  # No basic auth: ttyd denies the WS upgrade on mobile because browsers don't
+  # carry Authorization headers into WS handshakes. Tailnet membership is the
+  # real boundary; serve is tailnet-only, funnel is off.
   if ! pgrep -x ttyd >/dev/null 2>&1; then
     nohup ttyd -p 7681 -W \
-      -c curt:curt \
       /usr/local/bin/ttyd-entry \
       >>/tmp/ttyd.log 2>&1 &
     log_event "entrypoint" "ttyd-started" ""
