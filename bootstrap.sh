@@ -51,6 +51,8 @@ docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
   --user 1000:1000 \
+  --device /dev/net/tun \
+  --cap-add NET_ADMIN \
   -p 127.0.0.1:8000-8099:8000-8099 \
   -v "$PROJECTS_HOST_PATH:/projects" \
   -v "$AUDIT_HOST_PATH:/audit" \

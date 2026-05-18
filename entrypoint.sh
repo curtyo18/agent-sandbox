@@ -185,11 +185,8 @@ start_tailscale_ttyd() {
 
   if ! pgrep -x tailscaled >/dev/null 2>&1; then
     sudo -E nohup tailscaled \
-      --tun=userspace-networking \
       --statedir=/var/lib/tailscale \
       --socket=/var/run/tailscale/tailscaled.sock \
-      --socks5-server=localhost:1055 \
-      --outbound-http-proxy-listen=localhost:1055 \
       >>/tmp/tailscaled.log 2>&1 &
     log_event "entrypoint" "tailscaled-started" ""
   fi
