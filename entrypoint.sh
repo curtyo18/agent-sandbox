@@ -153,6 +153,9 @@ json.dump(d, open(p, 'w'), indent=2)
 
 # 4. Start squid (after render_squid_conf).
 start_squid() {
+  # Clean up a stale PID file left behind by a previous abrupt shutdown
+  # (tini -g process-group kill doesn't give squid time to remove it).
+  sudo rm -f /run/squid.pid
   sudo squid -N -f /etc/squid/squid.conf &
   # Tail access.log into audit (best-effort; squid format).
   sudo bash -c 'tail -F /var/log/squid/access.log 2>/dev/null | while read -r line; do
@@ -171,6 +174,14 @@ start_squid() {
 start_tailscale_ttyd() {
   sudo mkdir -p /var/lib/tailscale /var/run/tailscale
   sudo chown root:root /var/lib/tailscale
+
+  # Wait for squid to accept connections — tailscaled's first control-plane
+  # fetch goes through HTTPS_PROXY, and a connection refused at startup sticks
+  # the daemon in a logged-out state until manual intervention.
+  for _ in $(seq 1 30); do
+    if (echo > /dev/tcp/127.0.0.1/3128) 2>/dev/null; then break; fi
+    sleep 0.2
+  done
 
   if ! pgrep -x tailscaled >/dev/null 2>&1; then
     sudo -E nohup tailscaled \
