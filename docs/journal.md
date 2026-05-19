@@ -178,6 +178,35 @@ See [anthropics/claude-code#4714](https://github.com/anthropics/claude-code/issu
 
 **Fix.** Extended the entrypoint's existing `hasCompletedOnboarding` re-seeding block to enumerate `/projects/*` and set `hasTrustDialogAccepted: true` for every subdirectory at container start. Code in `entrypoint.sh::sync_config`. Soft caveat: a project directory added to `/projects` **after** the container starts isn't auto-trusted until the next container restart.
 
+### 15. Container + docker.service died together; systemd gave up retrying; no journal forensics
+
+**Symptom.** Container alive in the evening. Several hours later, container exited with code 135 (SIGBUS) and `docker.service` was in a permanently failed state. Restart policy `unless-stopped` did nothing because dockerd itself was down. WSL itself was fine the whole time — interactive shells still worked. Next morning `cbox` failed with "Cannot connect to the Docker daemon".
+
+**Cause.** A WSL2 VM-level event around the time of death:
+- A heavy in-container process (a long-running test runner in this case) hit SIGABRT.
+- Within ~15 minutes the container's PID 1 (tini) got SIGBUS — typically a memory-mapping / hypervisor-side issue, not an application fault.
+- `dockerd` died around the same window. Default `docker.service` retry budget is `StartLimitBurst=3` over `StartLimitIntervalSec=10s`. If three quick restart attempts fail (because the underlying issue is still live), systemd marks the unit "failed" and stops trying.
+- `systemd-journald` paused too. Its default WSL2 storage is volatile (`/run/log/journal`), so subsequent reads from `journalctl --since <window>` returned "No entries" — no forensic data across the crash window at all.
+
+The root cause of the VM-level event is undetermined; both `dmesg` and the systemd journal were silent across the relevant period.
+
+**Fix (mitigations, not root cause).**
+
+1. **Widen `docker.service` retry budget** via a systemd drop-in tracked at `host/docker-retry.conf` and installed by `bootstrap.sh` to `/etc/systemd/system/docker.service.d/retry.conf`:
+   ```ini
+   [Unit]
+   StartLimitBurst=20
+   StartLimitIntervalSec=900
+
+   [Service]
+   RestartSec=10
+   ```
+   `StartLimitBurst` and `StartLimitIntervalSec` must be in `[Unit]` on Ubuntu 24.04's systemd — in `[Service]`, `StartLimitIntervalSec` is silently dropped (you'll see "Unknown key name" only via `systemd-analyze verify docker.service`, not in the unit log). Verify effective values with `systemctl show docker.service -p RestartUSec -p StartLimitBurst -p StartLimitIntervalUSec` (note the `USec` suffix on time-valued properties — that's how `systemctl show` exposes them).
+
+2. **Make systemd journal persistent.** `bootstrap.sh` does `mkdir -p /var/log/journal && systemd-tmpfiles --create --prefix /var/log/journal && systemctl restart systemd-journald`. After this, the journal survives WSL restarts and captures kernel / unit-transition events across an incident window.
+
+**What we didn't add.** A higher-level watchdog (Windows-side scheduled task that hits the launcher URL and restarts docker on failure) was considered and parked. The retry+journal mitigations are the minimum-noise step; revisit if a second incident shows the retry budget wasn't enough.
+
 ## Host-side gotchas (not in this repo's code, but bit us)
 
 - **BIOS virtualization off by default.** AMD CPUs need SVM Mode enabled in BIOS (Gigabyte: Tweaker → Advanced CPU Settings). WSL2 fails with `HCS_E_HYPERV_NOT_INSTALLED` until this is on.
