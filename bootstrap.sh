@@ -33,6 +33,24 @@ if [[ ! -d "$PROJECTS_HOST_PATH" ]]; then
 fi
 mkdir -p "$AUDIT_HOST_PATH"
 
+echo "==> Installing docker.service retry drop-in"
+# Default StartLimitBurst=3 in StartLimitIntervalSec=10s puts docker into a
+# permanent failed state after a quick bad patch. Widen the budget so a
+# transient WSL2 / kernel event that briefly kills docker can be auto-recovered.
+sudo install -m 0644 -D "$REPO_DIR/host/docker-retry.conf" \
+  /etc/systemd/system/docker.service.d/retry.conf
+sudo systemctl daemon-reload
+sudo systemctl restart docker.service
+
+echo "==> Enabling persistent systemd journal"
+# Default WSL2 journald is in-memory at /run/log/journal — logs are lost on
+# every restart and were paused during the 2026-05-18 overnight wedge so we
+# had no record of what killed docker. Disk-backed journal at /var/log/journal
+# survives restarts and gives us forensic data after the next incident.
+sudo mkdir -p /var/log/journal
+sudo systemd-tmpfiles --create --prefix /var/log/journal
+sudo systemctl restart systemd-journald
+
 echo "==> Checking GitHub PAT file"
 if [[ ! -s "$PAT_FILE" ]]; then
   echo "No PAT at $PAT_FILE. The container will start but config-clone will be skipped."
