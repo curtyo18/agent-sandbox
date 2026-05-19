@@ -1,0 +1,9 @@
+# Default: auto-detect text/binary, force LF in working tree on all platforms.
+# Required because this repo is edited from Windows but shell scripts and the
+# Dockerfile run under bash/Linux, where CRLF breaks `set -e` and similar.
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf

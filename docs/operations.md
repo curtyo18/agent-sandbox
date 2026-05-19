@@ -82,7 +82,7 @@ Fix the allowlist syntax, push, `docker restart`.
 
 **Need to rebuild after editing Dockerfile / wrappers / entrypoint.**
 ```powershell
-wsl -d Ubuntu-24.04 -- bash /home/curt/code/agent-sandbox/bootstrap.sh
+wsl -d Ubuntu-24.04 -- bash /mnt/e/Projects/agent-sandbox/bootstrap.sh
 ```
 Image rebuilds (Docker layer cache makes most steps instant), container is recreated, state persists via named volumes.
 
@@ -185,4 +185,4 @@ jq -r 'select(.src=="squid") | .host' /audit/$(date -u +%F).jsonl | sort | uniq 
 
 ## Updating agent-config from outside the container
 
-Edit files in `~/code/agent-config/` (WSL side) → commit → push. Then `docker restart claude-box` to pull. The entrypoint always does `git pull --ff-only` on start.
+Edit files in `E:\Projects\agent-config\` (Windows side, surfaces as `/mnt/e/Projects/agent-config` from WSL) → commit → push. Then `docker restart claude-box` to pull. The entrypoint always does `git pull --ff-only` on start.

@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${HOME}/code/agent-sandbox"
+REPO_DIR="/mnt/e/Projects/agent-sandbox"
 PROJECTS_HOST_PATH="/mnt/e/Projects"
 AUDIT_HOST_PATH="/mnt/e/Projects/.claude-audit"
 CONTAINER_NAME="claude-box"

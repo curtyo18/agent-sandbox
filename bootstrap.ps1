@@ -54,12 +54,13 @@ if (-not (wsl -l -q 2>$null | Select-String 'Ubuntu-24.04')) {
 Info "Running bootstrap.sh inside WSL Ubuntu-24.04"
 $sh = @"
 set -e
-if [ ! -d "`$HOME/code/agent-sandbox" ]; then
-  mkdir -p "`$HOME/code"
-  git clone https://github.com/curtyo18/agent-sandbox.git "`$HOME/code/agent-sandbox"
+REPO_DIR=/mnt/e/Projects/agent-sandbox
+if [ ! -d "`$REPO_DIR" ]; then
+  mkdir -p /mnt/e/Projects
+  git clone https://github.com/curtyo18/agent-sandbox.git "`$REPO_DIR"
 fi
-cd "`$HOME/code/agent-sandbox" && git pull --ff-only || true
-bash "`$HOME/code/agent-sandbox/bootstrap.sh"
+cd "`$REPO_DIR" && git pull --ff-only || true
+bash "`$REPO_DIR/bootstrap.sh"
 "@
 
 & wsl -d Ubuntu-24.04 -- bash -lc $sh
