@@ -21,9 +21,31 @@ log_event() {
 mkdir -p "$AUDIT_DIR" "$AUTH_DIR"
 touch "$AUDIT_FILE"
 
+CONTAINER_MODE="${CONTAINER_MODE:-default}"
+
+if [[ "$CONTAINER_MODE" == "research" ]]; then
+  if [[ -z "${RESEARCH_REPO:-}" ]]; then
+    echo "ERROR: CONTAINER_MODE=research requires RESEARCH_REPO env var." >&2
+    exit 1
+  fi
+  # Research containers run public-config only — disable any private overlay.
+  unset AGENT_CONFIG_PRIVATE_REPO
+fi
+
 # 2. Render squid config from template + global allowlist + any per-project allowlists.
 render_squid_conf() {
   local out="/tmp/squid.conf"
+
+  # Research mode: open squid (full internet, still audited via access.log).
+  if [[ "$CONTAINER_MODE" == "research" ]]; then
+    awk '{gsub(/\{ALLOWLIST_INCLUDES\}/, "\n# research mode: open access\nhttp_access allow all\n"); print}' \
+      /etc/squid/squid.conf.template > "$out"
+    sed -i '/^http_access allow allowed_hosts/d' "$out"
+    sed -i '/^http_access deny all/d' "$out"
+    sudo cp "$out" /etc/squid/squid.conf
+    return 0
+  fi
+
   local includes=""
 
   # Global allowlist from agent-config.
@@ -172,6 +194,17 @@ json.dump(d, open(p, 'w'), indent=2)
         claude plugin install "$p" || echo "WARN: plugin install $p failed"
       fi
     done
+  fi
+
+  # Research mode: clone the research repo into /projects/research.
+  if [[ "$CONTAINER_MODE" == "research" ]]; then
+    if [[ ! -d /projects/research/.git ]]; then
+      HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$RESEARCH_REPO" /projects/research \
+        2>>/tmp/git-clone-research.err || \
+        echo "WARN: research repo clone failed; continuing." >&2
+    else
+      cd /projects/research && HTTPS_PROXY="" HTTP_PROXY="" git pull --ff-only || true
+    fi
   fi
 }
 
