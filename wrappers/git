@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# git wrapper — research mode push restriction.
+# All other operations pass through to /usr/bin/git transparently.
+# Uses /usr/bin/git directly for internal lookups to avoid recursive invocation.
+
+if [[ "${CONTAINER_MODE:-}" == "research" ]]; then
+  case "$*" in
+    push\ --force*|push\ --force-with-lease*|push\ -f\ *|push\ -f)
+      echo "ERROR: git push --force is blocked in research mode." >&2
+      exit 1
+      ;;
+    push\ *)
+      remote=$(echo "$*" | awk '{for(i=2;i<=NF;i++) if($i !~ /^-/) {print $i; exit}}')
+      remote="${remote:-origin}"
+      remote_url=$(/usr/bin/git remote get-url "$remote" 2>/dev/null || echo "")
+      if [[ "$remote_url" != "${RESEARCH_REPO:-}" ]]; then
+        echo "ERROR: git push blocked in research mode. Only pushes to RESEARCH_REPO are allowed." >&2
+        echo "  Remote URL:    ${remote_url}" >&2
+        echo "  RESEARCH_REPO: ${RESEARCH_REPO:-<unset>}" >&2
+        exit 1
+      fi
+      ;;
+  esac
+fi
+
+exec /usr/bin/git "$@"
