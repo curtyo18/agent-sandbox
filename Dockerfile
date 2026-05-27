@@ -53,14 +53,14 @@ COPY squid.conf.template                  /etc/squid/squid.conf.template
 COPY entrypoint.sh                        /usr/local/bin/entrypoint.sh
 COPY scripts/clip                         /usr/local/bin/clip
 COPY scripts/paste                        /usr/local/bin/paste
-COPY scripts/life-bot-launcher.py         /usr/local/bin/life-bot-launcher.py
+COPY scripts/session-launcher.py         /usr/local/bin/session-launcher.py
 RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/git \
                /usr/local/bin/git-audit-wrapper \
                /usr/local/bin/audit-shell.sh \
                /usr/local/bin/entrypoint.sh \
                /usr/local/bin/clip \
-               /usr/local/bin/life-bot-launcher.py \
+               /usr/local/bin/session-launcher.py \
                /usr/local/bin/rm \
                /usr/local/bin/rmdir \
                /usr/local/bin/paste

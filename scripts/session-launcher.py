@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
-"""life-bot launcher — tiny HTTP utility that wakes a named claude session."""
+"""Session launcher — tiny HTTP utility that wakes a named claude session."""
 
+# Configure via env vars:
+#   LAUNCHER_SESSION  tmux session name (default: claude-session)
+#   LAUNCHER_PROJECT  working directory for claude (default: /projects)
+#   LAUNCHER_PORT     port to listen on (default: 8088)
+
+import os
 import subprocess
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-PORT = 8088
-SESSION_NAME = "life-bot"
+PORT         = int(os.environ.get("LAUNCHER_PORT", "8088"))
+SESSION_NAME = os.environ.get("LAUNCHER_SESSION", "claude-session")
+PROJECT_PATH = os.environ.get("LAUNCHER_PROJECT", "/projects")
 
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>life-bot</title>
+  <title>{session_name}</title>
   <style>
     body {{ font-family: -apple-system, system-ui, sans-serif;
            background: #111; color: #eee;
@@ -31,7 +38,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>life-bot</h1>
+  <h1>{session_name}</h1>
   <p class="state {state_class}">{state_text}</p>
   <a class="btn" href="/wake">{button_text}</a>
 </body>
@@ -52,21 +59,23 @@ def session_alive() -> bool:
 def render_status_page() -> bytes:
     if session_alive():
         body = HTML_TEMPLATE.format(
+            session_name=SESSION_NAME,
             state_class="alive",
-            state_text="● tmux session running in /projects/life",
-            button_text="Restart life-bot",
+            state_text=f"● tmux session running in {PROJECT_PATH}",
+            button_text=f"Restart {SESSION_NAME}",
         )
     else:
         body = HTML_TEMPLATE.format(
+            session_name=SESSION_NAME,
             state_class="dead",
             state_text="○ not running",
-            button_text="Start life-bot",
+            button_text=f"Start {SESSION_NAME}",
         )
     return body.encode("utf-8")
 
 
 def wake_session() -> None:
-    """Kill any existing life-bot session, then spawn a fresh one running claude."""
+    """Kill any existing session, then spawn a fresh one running claude."""
     subprocess.run(
         ["tmux", "kill-session", "-t", SESSION_NAME],
         capture_output=True,  # tolerate "no such session"
@@ -75,7 +84,7 @@ def wake_session() -> None:
     subprocess.run(
         [
             "tmux", "new-session", "-d", "-s", SESSION_NAME,
-            "bash", "-lc", "cd /projects/life && claude --remote-control life-bot",
+            "bash", "-lc", f"cd {PROJECT_PATH} && claude --remote-control {SESSION_NAME}",
         ],
         check=True,
         timeout=5,

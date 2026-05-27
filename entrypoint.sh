@@ -224,11 +224,11 @@ start_squid() {
   done' &
 }
 
-# 5. Start the life-bot launcher (tiny HTTP server on :8088).
+# 5. Start the session launcher (tiny HTTP server on :8088).
 start_launcher() {
-  if ! pgrep -f life-bot-launcher.py >/dev/null 2>&1; then
-    nohup python3 /usr/local/bin/life-bot-launcher.py \
-      >>/tmp/life-bot-launcher.log 2>&1 &
+  if ! pgrep -f session-launcher.py >/dev/null 2>&1; then
+    nohup python3 /usr/local/bin/session-launcher.py \
+      >>/tmp/session-launcher.log 2>&1 &
     log_event "entrypoint" "launcher-started" ""
   fi
 }
