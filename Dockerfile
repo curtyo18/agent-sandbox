@@ -10,6 +10,7 @@ RUN apt-get update && \
         jq \
         tmux \
         tzdata \
+        rsync \
         procps && \
     rm -rf /var/lib/apt/lists/*
 
@@ -58,8 +59,9 @@ RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/life-bot-launcher.py \
                /usr/local/bin/paste
 
-# Environment: TZ for work-hours-guard, proxy for all HTTPS-aware tools.
-ENV TZ=Europe/London \
+# Environment: timezone, proxy for all HTTPS-aware tools.
+ARG TZ=Europe/London
+ENV TZ=${TZ} \
     HTTP_PROXY=http://127.0.0.1:3128 \
     HTTPS_PROXY=http://127.0.0.1:3128 \
     NO_PROXY=127.0.0.1,localhost \
