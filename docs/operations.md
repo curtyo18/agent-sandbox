@@ -8,9 +8,9 @@ From inside WSL (the bootstrap installs a `cbox` helper symlinked into `/usr/loc
 
 ```bash
 cbox              # bash shell in /projects
-cbox life         # bash shell in /projects/life
+cbox <project>    # bash shell in /projects/<project>
 cbox -c           # claude in /projects
-cbox -c life      # claude in /projects/life
+cbox -c <project> # claude in /projects/<project>
 ```
 
 `cbox` auto-starts the container if it has exited. Source: [`scripts/cbox`](../scripts/cbox).
@@ -82,7 +82,7 @@ Fix the allowlist syntax, push, `docker restart`.
 
 **Need to rebuild after editing Dockerfile / wrappers / entrypoint.**
 ```powershell
-wsl -d Ubuntu-24.04 -- bash /mnt/e/Projects/agent-sandbox/bootstrap.sh
+wsl -d Ubuntu-24.04 -- bash /mnt/e/Projects/agent-sandbox/bootstrap.sh   # example path — replace with your repo location
 ```
 Image rebuilds (Docker layer cache makes most steps instant), container is recreated, state persists via named volumes.
 
@@ -104,21 +104,21 @@ When you intentionally need to do something a guard blocks:
 
 Every override is itself audit-logged with a distinct `reason` field, so they're discoverable in the SessionStart surface next time you start a claude session.
 
-## Phone access (life-bot)
+## Phone access (optional)
 
-A claude session in `/projects/life` is reachable from any device on your tailnet via a tiny in-container HTTP launcher fronted by Tailscale Serve. See [architecture.md](architecture.md) → "Phone access via Tailscale" for the why.
+A claude session in `/projects/<your-project>` can be reachable from any device on your tailnet via a tiny in-container HTTP launcher fronted by Tailscale Serve. See [architecture.md](architecture.md) → "Phone access via Tailscale" for the why.
 
 ### One-time setup on a fresh Windows machine
 
 1. Install Tailscale Windows (https://tailscale.com/download/windows), sign in.
-2. Make sure the container is up and listening on `127.0.0.1:8088` from the WSL host:
+2. Make sure the container is up and listening on `127.0.0.1:<LAUNCHER_PORT>` from the WSL host (default `8088`):
    ```bash
-   wsl -d Ubuntu-24.04 -- bash -c 'curl -sS -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:8088/'
+   wsl -d Ubuntu-24.04 -- bash -c 'curl -sS -o /dev/null -w "HTTP %{http_code}\n" http://127.0.0.1:<LAUNCHER_PORT>/'
    ```
    Expect `HTTP 200`.
 3. From PowerShell, point Tailscale Serve at the launcher:
    ```powershell
-   & "C:\Program Files\Tailscale\tailscale.exe" serve --bg --https=443 http://127.0.0.1:8088
+   & "C:\Program Files\Tailscale\tailscale.exe" serve --bg --https=443 http://127.0.0.1:<LAUNCHER_PORT>
    & "C:\Program Files\Tailscale\tailscale.exe" serve status
    ```
    The status output shows the tailnet URL (e.g. `https://<your-hostname>.<your-tailnet>.ts.net (tailnet only)`).
@@ -135,15 +135,15 @@ Serve config persists in Tailscale's local state — survives Windows reboot, no
 Phone (Tailscale logged into the same account):
 
 1. Open `https://<hostname>.<tailnet>.ts.net/`.
-2. Page renders `● tmux session running in /projects/life` or `○ not running`.
+2. Page renders `● tmux session running in <project-path>` or `○ not running`.
 3. Tap the button (`Start` if dead, `Restart` if alive — both work). Page reloads.
-4. Switch to the Claude mobile app → Code tab → the `life-bot` session appears for chat.
+4. Switch to the Claude mobile app → Code tab → the configured session appears for chat.
 
 `Restart` is unconditional kill + respawn — useful because the Claude remote-control link can time out independently of the tmux session (mobile app shows no session, but the in-container tmux still exists). Always-restart sidesteps that.
 
-### Changing what life-bot runs
+### Changing what session-launcher runs
 
-`scripts/life-bot-launcher.py` hardcodes the directory and session name. To point it at a different repo, edit `SESSION_NAME` and the spawn command's `cd /projects/<repo>` then rebuild via `bash bootstrap.sh`.
+`scripts/session-launcher.py` is configured via env vars (`LAUNCHER_SESSION`, `LAUNCHER_PROJECT`, `LAUNCHER_PORT`). Set these in your `docker run` invocation and rebuild via `bash bootstrap.sh`.
 
 ## Copy to host clipboard from inside the container
 
@@ -171,7 +171,7 @@ Watcher log: `/tmp/claude-clip-watcher.log` in WSL. Restart manually with `nohup
 The audit log lives at `/audit/YYYY-MM-DD.jsonl` inside the container, which is bind-mounted from `<host-projects>/.claude-audit/YYYY-MM-DD.jsonl` on the host — so you can read it from either side without entering the container.
 
 ```powershell
-wsl -d Ubuntu-24.04 -- cat /mnt/e/Projects/.claude-audit/$(Get-Date -Format yyyy-MM-dd).jsonl
+wsl -d Ubuntu-24.04 -- cat /mnt/e/Projects/.claude-audit/$(Get-Date -Format yyyy-MM-dd).jsonl   # example path — replace with your host Projects directory
 ```
 
 Useful one-liners (inside container):
@@ -185,4 +185,4 @@ jq -r 'select(.src=="squid") | .host' /audit/$(date -u +%F).jsonl | sort | uniq 
 
 ## Updating agent-config from outside the container
 
-Edit files in `E:\Projects\agent-config\` (Windows side, surfaces as `/mnt/e/Projects/agent-config` from WSL) → commit → push. Then `docker restart claude-box` to pull. The entrypoint always does `git pull --ff-only` on start.
+Edit files in `E:\Projects\<repo-name>\` (Windows side, surfaces as `/mnt/e/Projects/<repo-name>` from WSL) → commit → push. Then `docker restart claude-box` to pull. The entrypoint always does `git pull --ff-only` on start.

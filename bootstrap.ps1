@@ -52,12 +52,18 @@ if (-not (wsl -l -q 2>$null | Select-String 'Ubuntu-24.04')) {
 
 # 3. Hand off to inside-WSL bootstrap. Assume the user's WSL home has access to git/curl.
 Info "Running bootstrap.sh inside WSL Ubuntu-24.04"
+
+# Customise these before running:
+$ProjectsPath    = "/mnt/e/Projects"
+$RepoDir         = "$ProjectsPath/agent-sandbox"
+$AgentSandboxUrl = "https://github.com/your-username/agent-sandbox.git"
+
 $sh = @"
 set -e
-REPO_DIR=/mnt/e/Projects/agent-sandbox
+REPO_DIR=$RepoDir
 if [ ! -d "`$REPO_DIR" ]; then
-  mkdir -p /mnt/e/Projects
-  git clone https://github.com/curtyo18/agent-sandbox.git "`$REPO_DIR"
+  mkdir -p $ProjectsPath
+  git clone $AgentSandboxUrl "`$REPO_DIR"
 fi
 cd "`$REPO_DIR" && git pull --ff-only || true
 bash "`$REPO_DIR/bootstrap.sh"
@@ -66,4 +72,4 @@ bash "`$REPO_DIR/bootstrap.sh"
 & wsl -d Ubuntu-24.04 -- bash -lc $sh
 
 Info "Bootstrap complete."
-Info "Next: docker exec -it claude-box bash -lc 'claude login'  (run inside WSL once)"
+Info "Next: open WSL, run: docker exec -it <container-name> bash -lc 'claude login'"
