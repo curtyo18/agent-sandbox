@@ -1,41 +1,80 @@
 # agent-sandbox
 
-Sandboxed Claude Code CLI runtime: Linux container on WSL2 Ubuntu, allowlisted forward proxy, destructive-action guard, secret-leak guard, audit log surfaced in-session.
+A sandboxed Claude Code runtime. Docker container with:
+- Network egress via squid proxy (strict allowlist by default)
+- GitHub CLI wrapper that blocks destructive operations and logs all calls
+- Pre-commit secret scanning
+- Automatic config from [agent-config](https://github.com/curtyo18/agent-config)
 
-> **Note (2026-05-16):** This repo is currently **PRIVATE**. The "Reproducing on a fresh machine" `iwr | iex` flow below requires public read access; flip to public is deferred until content review is complete.
+## Requirements
 
-## What's in here
+- Docker (Linux or WSL2)
+- GitHub CLI (`gh`) on the host
+- A GitHub PAT with repo scope
 
-- `Dockerfile` — extends `node:lts-bookworm`, installs claude/gh/gitleaks/squid + wrappers.
-- `entrypoint.sh` — runs at container start: clones `agent-config`, renders squid config, starts squid, stays alive.
-- `squid.conf.template` — base squid config; allowlist injected at startup.
-- `wrappers/gh` — gh CLI wrapper blocking visibility flips, repo delete/transfer/archive.
-- `wrappers/git-audit-wrapper` — logs force-push and non-origin push (no block).
-- `wrappers/audit-shell.sh` — bash DEBUG-trap logger; sourced via `BASH_ENV`.
-- `bootstrap.ps1` — Windows entry point (enables WSL2, installs Ubuntu, hands off).
-- `bootstrap.sh` — Ubuntu side (installs Docker, builds image, runs container).
-- `scripts/life-bot-launcher.py` — tiny in-container HTTP utility (`:8088`) that, when hit from the user's phone via Tailscale, spawns or restarts a tmux session running `claude --remote-control life-bot` in `/projects/life`. See [`docs/architecture.md`](docs/architecture.md) → "Phone access via Tailscale".
-- `tests/test-gh-wrapper.sh` — unit-style test for the gh wrapper.
+## Quick start
 
-Personal config (skills, hooks, CLAUDE.md, allowlist, gitleaks rules) lives in the **private** companion repo `agent-config`. The container clones it on start using a GitHub token stored on a Docker volume.
+```bash
+# Clone and build
+git clone https://github.com/curtyo18/agent-sandbox.git
+cd agent-sandbox
+docker build --build-arg TZ=America/New_York -t claude-sandbox .
 
-## Reproducing on a fresh machine
-
-Open elevated PowerShell on Windows 10/11 Pro and:
-
-```powershell
-iwr -UseBasicParsing https://raw.githubusercontent.com/curtyo18/agent-sandbox/main/bootstrap.ps1 | iex
+# Run (replace values)
+docker run -d \
+  --name claude-sandbox \
+  -e GIT_USER_EMAIL="you@example.com" \
+  -e GIT_USER_NAME="Your Name" \
+  claude-sandbox
 ```
 
-Then follow on-screen prompts. After Ubuntu is installed and Docker is up, write a GitHub token (any token with `repo` scope) to `~/.agent-sandbox/github-pat` inside WSL, re-run `bootstrap.sh`, then:
+## Config overlay
 
-```powershell
-wsl -d Ubuntu-24.04 -- docker exec -it claude-box bash -lc 'claude login'
+Point `AGENT_CONFIG_PRIVATE_REPO` at a private fork of agent-config to layer
+personal settings on top of the public base at startup:
+
+```bash
+docker run -d \
+  --name claude-sandbox \
+  -e GIT_USER_EMAIL="you@example.com" \
+  -e GIT_USER_NAME="Your Name" \
+  -e AGENT_CONFIG_PRIVATE_REPO="https://github.com/you/agent-config-private.git" \
+  claude-sandbox
 ```
 
-## Documentation
+The private repo is rsynced on top of the public config. Private wins on any
+filename clash.
 
-- [`docs/architecture.md`](docs/architecture.md) — design decisions and trade-offs (why squid, why two repos, why the gh wrapper).
-- [`docs/operations.md`](docs/operations.md) — daily entry, adding allowlist hosts, recovery, override env vars.
-- [`docs/verification.md`](docs/verification.md) — what was tested when the sandbox was first built (filesystem boundaries, network allowlist, gh guard, secret-scan, audit log).
-- [`docs/journal.md`](docs/journal.md) — bugs found during the initial bring-up and how they were fixed. Read this first if your bootstrap is failing.
+## Research mode
+
+A variant mode with full internet access and write restrictions:
+
+```bash
+docker run -d \
+  --name claude-research \
+  -e CONTAINER_MODE=research \
+  -e RESEARCH_REPO="https://github.com/you/research.git" \
+  -e GIT_USER_EMAIL="you@example.com" \
+  -e GIT_USER_NAME="Your Name" \
+  claude-sandbox
+```
+
+In research mode: squid allows all HTTPS, `rm`/`rmdir` are blocked, `git push`
+is restricted to `RESEARCH_REPO` only.
+
+## Phone access (optional)
+
+`scripts/session-launcher.py` is an HTTP server that spawns/restarts Claude
+sessions. Intended to be fronted by Tailscale for remote access from a phone.
+Configure via env vars — see the file header. Not started by default.
+
+## Network allowlist
+
+Default allowlist (strict mode): anthropic.com, claude.ai, github.com,
+npmjs.org, pypi.org, cloudflare API. Edit `network-allowlist.conf` in your
+agent-config and rebuild.
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for planned improvements: project scoping,
+scoped PATs, and mobile terminal access.
