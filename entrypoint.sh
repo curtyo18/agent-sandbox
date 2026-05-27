@@ -57,6 +57,7 @@ render_squid_conf() {
 # github.com would be on the allowlist anyway, so direct egress here matches policy.
 sync_config() {
   local pat="$(cat "$AUTH_DIR/github-pat" 2>/dev/null || true)"
+  local AGENT_CONFIG_REPO="${AGENT_CONFIG_REPO:-https://github.com/curtyo18/agent-config.git}"
 
   if [[ -z "$pat" ]]; then
     log_event "entrypoint" "config-sync-skipped" "no-pat"
@@ -76,7 +77,7 @@ sync_config() {
     local current_url
     current_url="$(git -C "$CONFIG_DIR" remote get-url origin 2>/dev/null || true)"
     if [[ "$current_url" == *"@github.com/"* ]]; then
-      git -C "$CONFIG_DIR" remote set-url origin "https://github.com/curtyo18/agent-config.git"
+      git -C "$CONFIG_DIR" remote set-url origin "$AGENT_CONFIG_REPO"
       log_event "entrypoint" "config-remote-url-scrubbed" ""
     fi
   fi
@@ -89,7 +90,7 @@ sync_config() {
     fi
   else
     if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 \
-      "https://github.com/curtyo18/agent-config.git" \
+      "$AGENT_CONFIG_REPO" \
       "$CONFIG_DIR" 2>>/tmp/git-clone.err
     then
       log_event "entrypoint" "config-clone-failed" "$(tail -1 /tmp/git-clone.err 2>/dev/null)"
@@ -103,8 +104,8 @@ sync_config() {
 
   # Wire git: hooksPath for pre-commit, identity for commits (idempotent).
   git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
-  git config --global user.email "curtyo18@gmail.com" 2>/dev/null || true
-  git config --global user.name "curtyo18" 2>/dev/null || true
+  git config --global user.email "${GIT_USER_EMAIL:?GIT_USER_EMAIL must be set}"
+  git config --global user.name "${GIT_USER_NAME:?GIT_USER_NAME must be set}"
 
   # Bash function that wraps `claude` with --dangerously-skip-permissions.
   # Container guard rails (squid, gh wrapper, secret-scan) are the safety net.
@@ -144,6 +145,20 @@ if os.path.isdir('/projects'):
             projects.setdefault(full, {})['hasTrustDialogAccepted'] = True
 json.dump(d, open(p, 'w'), indent=2)
 " 2>/dev/null || true
+
+  # Private overlay: rsync personal config on top of public base. Optional.
+  if [ -n "${AGENT_CONFIG_PRIVATE_REPO:-}" ]; then
+    echo "Applying private config overlay..."
+    if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$AGENT_CONFIG_PRIVATE_REPO" /tmp/private-overlay 2>>/tmp/git-clone-overlay.err; then
+      echo "WARN: private overlay clone failed; continuing with public config only." >&2
+      log_event "entrypoint" "overlay-clone-failed" "$(tail -1 /tmp/git-clone-overlay.err 2>/dev/null)"
+    else
+      rsync -a --exclude='.git' /tmp/private-overlay/ "$CONFIG_DIR/"
+      rm -rf /tmp/private-overlay
+      echo "Private overlay applied."
+      log_event "entrypoint" "overlay-applied" ""
+    fi
+  fi
 
   # Install enabledPlugins from settings.json (idempotent: skip if already installed).
   if [[ -f "$CONFIG_DIR/settings.json" ]]; then
