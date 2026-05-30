@@ -48,8 +48,8 @@ is in [docs/architecture.md](docs/architecture.md).
 git clone https://github.com/curtyo18/agent-sandbox.git ~/projects/agent-sandbox
 cd ~/projects/agent-sandbox
 
-# 2. Give the container GitHub access: log in with gh (bootstrap reuses that token),
-#    or drop a PAT at ~/.agent-sandbox/github-pat. Details + scope: "GitHub access" below.
+# 2. Give the container GitHub access: `gh auth login` to act as you (easiest), or drop a
+#    PAT at ~/.agent-sandbox/github-pat — e.g. for a dedicated agent account. See "GitHub access".
 gh auth login        # skip if you're already logged in
 
 # 3. Build + run. Git identity is auto-detected from your host git config / gh account
@@ -75,20 +75,23 @@ If you cloned somewhere other than `~/projects/agent-sandbox`, set `REPO_DIR` an
 
 ## GitHub access
 
-The container does its GitHub work — cloning your config, `git push`, `gh pr create` — as
-**you**, using one token. At startup `entrypoint.sh` runs `gh auth setup-git`, so this token
-becomes the credential for *every* git / `gh` operation inside the container, not just the
-initial config clone. Bootstrap reads it from `~/.agent-sandbox/github-pat`.
+The container does all its GitHub work — cloning your config, `git push`, `gh pr create` —
+through **one token, and that token decides which GitHub identity the agent acts as.** At
+startup `entrypoint.sh` runs `gh auth setup-git`, so it's the credential for *every* git /
+`gh` operation inside the container, not just the initial config clone. Bootstrap reads it
+from `~/.agent-sandbox/github-pat`.
 
-**Two ways to provide it:**
+**Pick the identity, then hand bootstrap the token:**
 
-1. **Reuse your host `gh` login (easiest).** If `gh` is logged in on the host, bootstrap
-   auto-fills the token via `gh auth token` — nothing to create or rotate:
+1. **Easiest — act as you.** Reuse your host `gh` login; bootstrap auto-fills the token via
+   `gh auth token`, nothing to create or rotate. Commits and PRs land under your account:
    ```bash
    gh auth login        # once, if you haven't already
    bash bootstrap.sh    # auto-uses the host token when no PAT file exists
    ```
-2. **Provide a token explicitly:**
+2. **Cleaner — a dedicated agent identity.** Mint a PAT for a separate bot/agent account (or
+   `gh auth login` as it), and drop it in explicitly. The agent's commits are attributable to
+   *it*, not you, and you can scope the token tighter — worth it if you want that separation:
    ```bash
    mkdir -p ~/.agent-sandbox
    printf '%s' 'ghp_your_token_here' > ~/.agent-sandbox/github-pat

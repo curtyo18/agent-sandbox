@@ -73,7 +73,7 @@ Deferred. To verify: inside an interactive `claude` session in the container, ru
 
 Re-running `bootstrap.sh` recreates the container (new container ID) but **state persists** via two named Docker volumes:
 
-- `claude-auth` → `/home/claude/.claude-auth/` (GitHub PAT)
+- `claude-auth` → `/home/claude/.claude-auth/` (GitHub token — a PAT or your gh login's token)
 - `claude-cfg-cache` → `/home/claude/.claude/` (Anthropic OAuth `.credentials.json`, claude CLI history, cached agent-config clone)
 
 User-visible behaviour after re-run: claude still authed, agent-config still synced, no manual recovery needed. The container handle is fresh but the workspace inside is identical.
