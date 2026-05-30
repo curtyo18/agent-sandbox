@@ -74,6 +74,9 @@ ENV TZ=${TZ} \
     BASH_ENV=/usr/local/bin/audit-shell.sh \
     PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
+# Point glibc at TZ so `date`, logs, and tooling report local time (not just $TZ-aware tools).
+RUN ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone
+
 # Passwordless sudo for the claude user.
 # Originally an allowlist of /usr/sbin/squid, /bin/bash, /usr/bin/tail, /bin/cp — but having
 # /bin/bash in the list means `sudo bash -c '<anything>'` already grants full root, so the

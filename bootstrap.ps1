@@ -53,8 +53,8 @@ if (-not (wsl -l -q 2>$null | Select-String 'Ubuntu-24.04')) {
 # 3. Hand off to inside-WSL bootstrap. Assume the user's WSL home has access to git/curl.
 Info "Running bootstrap.sh inside WSL Ubuntu-24.04"
 
-# Customise these before running:
-$ProjectsPath    = "/mnt/e/Projects"
+# Customise these before running (these are WSL paths, not Windows paths):
+$ProjectsPath    = "/home/<your-wsl-username>/projects"
 $RepoDir         = "$ProjectsPath/agent-sandbox"
 $AgentSandboxUrl = "https://github.com/your-username/agent-sandbox.git"
 

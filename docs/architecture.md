@@ -4,7 +4,7 @@ The *why* behind the design. For *what's where*, see the README.
 
 ## Two repos, not one
 
-`agent-sandbox` (this repo) holds the runtime artifacts — Dockerfile, bootstrap scripts, wrappers, squid template, tests. Intended to be public-readable eventually so the bootstrap one-liner works on a fresh machine without auth.
+`agent-sandbox` (this repo) holds the runtime artifacts — Dockerfile, bootstrap scripts, wrappers, squid template, tests. It is public so the bootstrap flow works on a fresh machine; only the GitHub PAT (for cloning config) is user-supplied.
 
 `agent-config-private` (personal overlay) holds personal config — CLAUDE.md tweaks, private skill prefs, anything that shouldn't go public. Rsynced on top of the public `agent-config` clone at container start. The container fetches both using a GitHub token stored on a persistent Docker volume.
 

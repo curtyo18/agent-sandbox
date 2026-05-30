@@ -39,7 +39,7 @@ Why keep UID 1000 — bind-mounted files from the host show as UID 1000 inside t
 
 **Cause.** WSL's 9p mount of Windows drives can expose `E:\projects` and `E:\Projects` as separate directories even though NTFS is case-insensitive at the filesystem level. `bootstrap.sh` originally hardcoded the lowercase path; reality on the host was capital P.
 
-**Fix.** `bootstrap.sh` uses `/mnt/e/Projects` to match what's actually on disk. If your host uses a different layout, adjust `PROJECTS_HOST_PATH` at the top of `bootstrap.sh`.
+**Fix.** Set `PROJECTS_HOST_PATH` to the path exactly as it exists on disk (matching the real casing). It now defaults to a neutral `$HOME/projects` placeholder; override it in your environment or at the top of `bootstrap.sh`.
 
 ### 4. `git core.hooksPath` never wired up
 

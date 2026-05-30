@@ -9,9 +9,9 @@ set -euo pipefail
 # Each setting falls back to the default below if not exported by the caller.
 # A private wrapper script can `export VAR=...` then `exec bash bootstrap.sh`
 # to drive this without locally editing the tracked file.
-REPO_DIR="${REPO_DIR:-/mnt/e/Projects/agent-sandbox}"          # Path to this repo in WSL
-PROJECTS_HOST_PATH="${PROJECTS_HOST_PATH:-/mnt/e/Projects}"    # Host path bind-mounted as /projects
-AUDIT_HOST_PATH="${AUDIT_HOST_PATH:-/mnt/e/Projects/.claude-audit}"
+REPO_DIR="${REPO_DIR:-$HOME/projects/agent-sandbox}"          # Path to this repo (change to match your clone)
+PROJECTS_HOST_PATH="${PROJECTS_HOST_PATH:-$HOME/projects}"    # Host path bind-mounted as /projects
+AUDIT_HOST_PATH="${AUDIT_HOST_PATH:-$PROJECTS_HOST_PATH/.claude-audit}"
 CONTAINER_NAME="${CONTAINER_NAME:-claude-box}"
 IMAGE_TAG="${IMAGE_TAG:-claude-box:latest}"
 AGENT_SANDBOX_REPO="${AGENT_SANDBOX_REPO:-https://github.com/your-username/agent-sandbox.git}"
@@ -22,7 +22,7 @@ PAT_FILE="${HOME}/.agent-sandbox/github-pat"
 
 echo "==> Checking Docker"
 if ! command -v docker >/dev/null; then
-  echo "Docker not installed. Run Phase A4 of the plan first." >&2
+  echo "Docker not installed. Install Docker (or start it in WSL) and re-run." >&2
   exit 1
 fi
 docker info >/dev/null 2>&1 || { sudo service docker start && sleep 2; }
@@ -62,7 +62,7 @@ sudo systemctl restart systemd-journald
 echo "==> Checking GitHub PAT file"
 if [[ ! -s "$PAT_FILE" ]]; then
   echo "No PAT at $PAT_FILE. The container will start but config-clone will be skipped."
-  echo "After Task B4, store the PAT there and re-run this script."
+  echo "Create a GitHub PAT (repo scope), save it to that path, and re-run this script."
 fi
 
 echo "==> Building image"
@@ -86,6 +86,9 @@ docker run -d \
   -e GIT_USER_EMAIL="$GIT_USER_EMAIL" \
   -e GIT_USER_NAME="$GIT_USER_NAME" \
   -e AGENT_CONFIG_PRIVATE_REPO="${AGENT_CONFIG_PRIVATE_REPO:-}" \
+  -e CONTAINER_MODE="${CONTAINER_MODE:-default}" \
+  -e RESEARCH_REPO="${RESEARCH_REPO:-}" \
+  -e AGENT_CONFIG_REPO="${AGENT_CONFIG_REPO:-}" \
   "$IMAGE_TAG"
 
 # If PAT is on host, copy it into the auth volume now (one-time wiring).
