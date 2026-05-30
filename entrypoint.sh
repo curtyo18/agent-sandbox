@@ -108,7 +108,22 @@ sync_config() {
     cd "$CONFIG_DIR"
     if ! HTTPS_PROXY="" HTTP_PROXY="" git pull --ff-only 2>>/tmp/git-pull.err; then
       log_event "entrypoint" "config-pull-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
-      echo "WARN: git pull failed in $CONFIG_DIR; using last-good cache." >&2
+      echo "WARN: git pull failed; hard-resyncing to remote default branch." >&2
+      # Self-heal: a default-branch rename or diverged history wedges --ff-only and would
+      # otherwise leave the container on stale cached config forever (a silent failure).
+      # Discover the remote's current default branch, fetch it, and hard-reset onto it.
+      # Untracked runtime data (projects/, plugins/) survives reset --hard / checkout -f.
+      def_branch="$(HTTPS_PROXY="" HTTP_PROXY="" git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's#^ref:[[:space:]]*refs/heads/\([^[:space:]]*\).*#\1#p')"
+      def_branch="${def_branch:-master}"
+      if HTTPS_PROXY="" HTTP_PROXY="" git fetch --depth=1 origin "$def_branch" 2>>/tmp/git-pull.err \
+         && git checkout -f -B "$def_branch" FETCH_HEAD 2>>/tmp/git-pull.err; then
+        git branch --set-upstream-to="origin/$def_branch" "$def_branch" 2>/dev/null || true
+        log_event "entrypoint" "config-resynced" "$def_branch"
+        echo "Config hard-resynced to origin/$def_branch." >&2
+      else
+        log_event "entrypoint" "config-resync-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
+        echo "WARN: resync failed; using last-good cache." >&2
+      fi
     fi
   else
     if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 \
@@ -120,9 +135,9 @@ sync_config() {
     fi
   fi
 
-  # Ensure hooks have read+exec.
-  find "$CONFIG_DIR/hooks" -name "*.cjs" -exec chmod +rx {} \; 2>/dev/null || true
-  find "$CONFIG_DIR/hooks" -name "*.sh"  -exec chmod +rx {} \; 2>/dev/null || true
+  # Ensure all hooks are executable — including extensionless dispatchers like `pre-commit`
+  # (git silently skips a hook that lacks the +x bit, e.g. when a copy dropped the mode).
+  find "$CONFIG_DIR/hooks" -type f -exec chmod +rx {} \; 2>/dev/null || true
 
   # Wire git: hooksPath for pre-commit, identity for commits (idempotent).
   git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
