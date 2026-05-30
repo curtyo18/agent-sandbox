@@ -96,17 +96,13 @@ The real safety mechanisms — squid, gh wrapper, secret-scan, audit — are at 
 
 To reach a `claude` session from a phone, the sandbox can run a tiny in-container HTTP launcher (`scripts/session-launcher.py`) on `127.0.0.1:${LAUNCHER_PORT}` (published from the container to the WSL host's loopback). Tailscale Serve on the **Windows host** fronts it as HTTPS at `https://<hostname>.<tailnet>.ts.net/`, tailnet-only (funnel off). Phone taps the URL → launcher kills any prior tmux session and spawns a fresh one running `claude --remote-control <session-name>` in the configured project path → the session auto-appears in the Claude mobile app's Code tab, where the actual chat UX lives.
 
-```
-[ Phone ] ──tailnet HTTPS──► [ Tailscale Serve (Windows) ]
-                                       │ proxy → 127.0.0.1:<PORT>
-                                       ▼
-                          [ Docker port publish ] ──► [ launcher (in container) ]
-                                                              │ tmux new-session …
-                                                              ▼
-                                                  [ claude --remote-control <session-name> ]
-                                                              │
-                                                              ▼
-                                       [ Claude mobile app, same logged-in account ]
+```mermaid
+flowchart TD
+    PH(["phone — Tailscale,<br/>same account"]) -->|tailnet HTTPS| TS["Tailscale Serve<br/>on the Windows host"]
+    TS -->|"proxy to 127.0.0.1:PORT"| DP["Docker published port"]
+    DP --> LA["session-launcher<br/>inside the container"]
+    LA -->|"tmux new-session"| RC["claude --remote-control<br/>&lt;session-name&gt;"]
+    RC -->|same logged-in account| APP(["Claude mobile app<br/>Code tab"])
 ```
 
 ### Why Tailscale on the Windows host, not in the container
