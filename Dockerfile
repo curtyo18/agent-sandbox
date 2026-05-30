@@ -32,7 +32,7 @@ RUN curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEA
 RUN npm install -g @anthropic-ai/claude-code
 
 # Non-root user. `node:lts-bookworm` base ships a `node` user/group at UID/GID 1000 —
-# delete it so we can reuse 1000 for `claude` (matches host curt UID for bind-mount ownership).
+# delete it so we can reuse 1000 for `claude` (matches typical host UID for bind-mount ownership).
 ARG UID=1000
 ARG GID=1000
 RUN userdel -r node 2>/dev/null || true && \
