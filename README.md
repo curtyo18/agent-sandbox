@@ -38,7 +38,8 @@ is in [docs/architecture.md](docs/architecture.md).
 
 - Docker, on WSL2 (Ubuntu) — the blessed path. Plain Linux works too; see
   [Running without WSL](#running-without-wsl-what-bootstrap-automates).
-- A GitHub Personal Access Token with `repo` scope (used to clone your config).
+- GitHub access for the container — either `gh` logged in on the host, or a Personal Access
+  Token with `repo` scope. See [GitHub access](#github-access).
 
 ## Quick start (WSL2)
 
@@ -47,7 +48,9 @@ is in [docs/architecture.md](docs/architecture.md).
 git clone https://github.com/curtyo18/agent-sandbox.git ~/projects/agent-sandbox
 cd ~/projects/agent-sandbox
 
-# 2. Store your GitHub PAT where bootstrap looks for it.
+# 2. Give the container GitHub access (details + scope under "GitHub access" below).
+#    Easiest: if the host has gh, just `gh auth login` and bootstrap reuses that token.
+#    Otherwise, save a token explicitly:
 mkdir -p ~/.agent-sandbox
 printf '%s' 'ghp_your_token_here' > ~/.agent-sandbox/github-pat
 chmod 600 ~/.agent-sandbox/github-pat
@@ -72,6 +75,37 @@ cbox -c <repo>    # claude in /projects/<repo>
 
 If you cloned somewhere other than `~/projects/agent-sandbox`, set `REPO_DIR` and
 `PROJECTS_HOST_PATH` to match (see [Configuration](#configuration)).
+
+## GitHub access
+
+The container does its GitHub work — cloning your config, `git push`, `gh pr create` — as
+**you**, using one token. At startup `entrypoint.sh` runs `gh auth setup-git`, so this token
+becomes the credential for *every* git / `gh` operation inside the container, not just the
+initial config clone. Bootstrap reads it from `~/.agent-sandbox/github-pat`.
+
+**Two ways to provide it:**
+
+1. **Reuse your host `gh` login (easiest).** If `gh` is logged in on the host, bootstrap
+   auto-fills the token via `gh auth token` — nothing to create or rotate:
+   ```bash
+   gh auth login        # once, if you haven't already
+   bash bootstrap.sh    # auto-uses the host token when no PAT file exists
+   ```
+2. **Provide a token explicitly:**
+   ```bash
+   mkdir -p ~/.agent-sandbox
+   printf '%s' 'ghp_your_token_here' > ~/.agent-sandbox/github-pat
+   chmod 600 ~/.agent-sandbox/github-pat
+   ```
+
+**Scope:** a classic PAT with `repo` scope covers private clones, push, and PRs. (Fine-grained
+PATs need at least *Contents: read/write* and *Pull requests: read/write* on the repos you'll
+touch.) The `gh` wrapper blocks destructive operations regardless of scope.
+
+**Without a token** the container still starts, but the startup config step bails early — so
+you get **no config clone (skills/hooks), no git commit identity, and no `claude`
+permission-bypass wrapper**. It's a bare container until you add one and restart. The token is
+stored on the persistent `claude-auth` volume (chmod 600), never baked into the image.
 
 ## How it boots
 
@@ -174,7 +208,8 @@ docker exec -it claude-sandbox bash -lc 'claude login'
 docker exec -it claude-sandbox bash -lc 'cd /projects && claude --dangerously-skip-permissions'
 ```
 
-Without the PAT the container still starts, but config-clone is skipped (no skills/hooks).
+Without a token the container still starts, but the startup config step bails early — no
+config clone, no git identity, no `claude` bypass wrapper (see [GitHub access](#github-access)).
 
 ## Network allowlist
 

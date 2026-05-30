@@ -35,7 +35,7 @@ The gh wrapper sits at `/usr/local/bin/gh`, ahead of the real binary, and patter
 
 ## Existing gh token, not a fine-grained PAT
 
-Originally scoped: a fine-grained PAT with read-only access to one private repo. Replaced during implementation with the host's existing `gh` token (broader `repo` scope).
+Originally scoped: a fine-grained PAT with read-only access to one private repo. Replaced during implementation with the host's existing `gh` token (broader `repo` scope) — `bootstrap.sh` auto-fills it via `gh auth token` when no `~/.agent-sandbox/github-pat` file is present, so most setups never mint a separate PAT.
 
 **Why:** the gh wrapper is the actual safety mechanism. A scoped PAT is *secondary* defense — convenient if leaked, since damage is limited. But once we trust the wrapper to block destructive ops, scope becomes ergonomic noise (annoying to renew, friction to use for legitimate work the broader token supports).
 

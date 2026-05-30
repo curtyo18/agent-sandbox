@@ -59,10 +59,19 @@ sudo mkdir -p /var/log/journal
 sudo systemd-tmpfiles --create --prefix /var/log/journal
 sudo systemctl restart systemd-journald
 
-echo "==> Checking GitHub PAT file"
+echo "==> Checking GitHub token"
 if [[ ! -s "$PAT_FILE" ]]; then
-  echo "No PAT at $PAT_FILE. The container will start but config-clone will be skipped."
-  echo "Create a GitHub PAT (repo scope), save it to that path, and re-run this script."
+  # Prefer the host's existing gh login — no separate PAT to mint or rotate.
+  if command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then
+    echo "    No token file; reusing the host's gh auth token."
+    mkdir -p "$(dirname "$PAT_FILE")"
+    gh auth token > "$PAT_FILE"
+    chmod 600 "$PAT_FILE"
+  else
+    echo "No token at $PAT_FILE and no usable host 'gh' login."
+    echo "Either run 'gh auth login' on the host, or save a PAT (repo scope) to that path; then re-run."
+    echo "Without it the container starts but skips config-clone, git identity, and the claude wrapper."
+  fi
 fi
 
 echo "==> Building image"
