@@ -6,14 +6,17 @@
 set -euo pipefail
 
 # ── Customise these for your machine ──────────────────────────────────────────
-REPO_DIR="/mnt/e/Projects/agent-sandbox"       # Path to this repo in WSL
-PROJECTS_HOST_PATH="/mnt/e/Projects"           # Host path bind-mounted as /projects
-AUDIT_HOST_PATH="/mnt/e/Projects/.claude-audit" # Audit log path
-CONTAINER_NAME="claude-box"                    # Docker container name
-IMAGE_TAG="claude-box:latest"
-AGENT_SANDBOX_REPO="https://github.com/your-username/agent-sandbox.git"
-GIT_USER_EMAIL="you@example.com"              # Passed into container for git commits
-GIT_USER_NAME="Your Name"
+# Each setting falls back to the default below if not exported by the caller.
+# A private wrapper script can `export VAR=...` then `exec bash bootstrap.sh`
+# to drive this without locally editing the tracked file.
+REPO_DIR="${REPO_DIR:-/mnt/e/Projects/agent-sandbox}"          # Path to this repo in WSL
+PROJECTS_HOST_PATH="${PROJECTS_HOST_PATH:-/mnt/e/Projects}"    # Host path bind-mounted as /projects
+AUDIT_HOST_PATH="${AUDIT_HOST_PATH:-/mnt/e/Projects/.claude-audit}"
+CONTAINER_NAME="${CONTAINER_NAME:-claude-box}"
+IMAGE_TAG="${IMAGE_TAG:-claude-box:latest}"
+AGENT_SANDBOX_REPO="${AGENT_SANDBOX_REPO:-https://github.com/your-username/agent-sandbox.git}"
+GIT_USER_EMAIL="${GIT_USER_EMAIL:-you@example.com}"            # Passed into container for git commits
+GIT_USER_NAME="${GIT_USER_NAME:-Your Name}"
 # ──────────────────────────────────────────────────────────────────────────────
 PAT_FILE="${HOME}/.agent-sandbox/github-pat"
 
@@ -82,6 +85,7 @@ docker run -d \
   -v claude-gh-config:/home/claude/.config \
   -e GIT_USER_EMAIL="$GIT_USER_EMAIL" \
   -e GIT_USER_NAME="$GIT_USER_NAME" \
+  -e AGENT_CONFIG_PRIVATE_REPO="${AGENT_CONFIG_PRIVATE_REPO:-}" \
   "$IMAGE_TAG"
 
 # If PAT is on host, copy it into the auth volume now (one-time wiring).
