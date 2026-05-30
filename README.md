@@ -44,22 +44,20 @@ is in [docs/architecture.md](docs/architecture.md).
 ## Quick start (WSL2)
 
 ```bash
-# 1. Clone into your projects directory (the defaults below assume ~/projects).
+# 1. Clone under your projects directory (the path defaults assume ~/projects).
 git clone https://github.com/curtyo18/agent-sandbox.git ~/projects/agent-sandbox
 cd ~/projects/agent-sandbox
 
-# 2. Give the container GitHub access (details + scope under "GitHub access" below).
-#    Easiest: if the host has gh, just `gh auth login` and bootstrap reuses that token.
-#    Otherwise, save a token explicitly:
-mkdir -p ~/.agent-sandbox
-printf '%s' 'ghp_your_token_here' > ~/.agent-sandbox/github-pat
-chmod 600 ~/.agent-sandbox/github-pat
+# 2. Give the container GitHub access: log in with gh (bootstrap reuses that token),
+#    or drop a PAT at ~/.agent-sandbox/github-pat. Details + scope: "GitHub access" below.
+gh auth login        # skip if you're already logged in
 
-# 3. Build + run. Your git identity is auto-detected from the host's git config
-#    (falling back to your gh account); export GIT_USER_EMAIL / GIT_USER_NAME only to override.
+# 3. Build + run. Git identity is auto-detected from your host git config / gh account
+#    (export GIT_USER_EMAIL / GIT_USER_NAME only to override).
 bash bootstrap.sh
 
-# 4. First time only: authenticate Claude.
+# 4. First run only: sign in to Claude itself — the Anthropic login, separate
+#    from the GitHub access in step 2.
 docker exec -it claude-box bash -lc 'claude login'
 ```
 
@@ -109,7 +107,7 @@ stored on the persistent `claude-auth` volume (chmod 600), never baked into the 
 ## How it boots
 
 When `bootstrap.sh` starts the container, `entrypoint.sh` runs once: it authenticates with
-your PAT, clones (or updates) `agent-config` into the persistent `~/.claude` volume —
+your GitHub token, clones (or updates) `agent-config` into the persistent `~/.claude` volume —
 rsyncing the optional private overlay on top — then renders `squid.conf` from your allowlist
 and starts squid. After that it idles, ready for `cbox` / `docker exec`.
 
@@ -184,8 +182,8 @@ to `RESEARCH_REPO`, and any private overlay is disabled.
 
 `bootstrap.sh` wraps the raw Docker flow with WSL conveniences (the `cbox` helper, a
 clipboard bridge, host systemd tweaks). On a plain Linux host you can run the container
-directly — but you must provision the PAT into the auth volume yourself, the step the old
-quick-start was missing:
+directly — you provision the token into the auth volume yourself and pass real
+`GIT_USER_*` (there's no identity auto-detection on this path):
 
 ```bash
 docker build -t claude-sandbox .          # TZ defaults to Europe/London; override with --build-arg TZ=…
