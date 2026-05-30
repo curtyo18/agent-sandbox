@@ -15,8 +15,8 @@ AUDIT_HOST_PATH="${AUDIT_HOST_PATH:-$PROJECTS_HOST_PATH/.claude-audit}"
 CONTAINER_NAME="${CONTAINER_NAME:-claude-box}"
 IMAGE_TAG="${IMAGE_TAG:-claude-box:latest}"
 AGENT_SANDBOX_REPO="${AGENT_SANDBOX_REPO:-https://github.com/your-username/agent-sandbox.git}"
-GIT_USER_EMAIL="${GIT_USER_EMAIL:-you@example.com}"            # Passed into container for git commits
-GIT_USER_NAME="${GIT_USER_NAME:-Your Name}"
+GIT_USER_EMAIL="${GIT_USER_EMAIL:-}"            # git commit identity (auto-detected below if unset)
+GIT_USER_NAME="${GIT_USER_NAME:-}"
 # ──────────────────────────────────────────────────────────────────────────────
 PAT_FILE="${HOME}/.agent-sandbox/github-pat"
 
@@ -73,6 +73,32 @@ if [[ ! -s "$PAT_FILE" ]]; then
     echo "Without it the container starts but skips config-clone, git identity, and the claude wrapper."
   fi
 fi
+
+echo "==> Resolving git identity"
+# Auto-detect from the host git config, then the authenticated gh account, so consumers
+# need set nothing. An explicit GIT_USER_* env (e.g. from a private wrapper) always wins.
+if [[ -z "$GIT_USER_EMAIL" ]]; then
+  GIT_USER_EMAIL="$(git config --global user.email 2>/dev/null || true)"
+  if [[ -z "$GIT_USER_EMAIL" ]] && command -v gh >/dev/null 2>&1; then
+    GIT_USER_EMAIL="$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null || true)"
+  fi
+fi
+if [[ -z "$GIT_USER_NAME" ]]; then
+  GIT_USER_NAME="$(git config --global user.name 2>/dev/null || true)"
+  if [[ -z "$GIT_USER_NAME" ]] && command -v gh >/dev/null 2>&1; then
+    GIT_USER_NAME="$(gh api user --jq '.name // .login' 2>/dev/null || true)"
+  fi
+fi
+missing=()
+[[ -z "$GIT_USER_EMAIL" ]] && missing+=("GIT_USER_EMAIL") || true
+[[ -z "$GIT_USER_NAME" ]] && missing+=("GIT_USER_NAME") || true
+if ((${#missing[@]})); then
+  echo "FATAL: couldn't auto-detect git identity (${missing[*]})." >&2
+  echo "  Set it on the host:  git config --global user.name 'You' && git config --global user.email you@you.com" >&2
+  echo "  ...or export GIT_USER_NAME / GIT_USER_EMAIL, then re-run." >&2
+  exit 2
+fi
+echo "    using $GIT_USER_NAME <$GIT_USER_EMAIL>"
 
 echo "==> Building image"
 cd "$REPO_DIR"

@@ -55,9 +55,8 @@ mkdir -p ~/.agent-sandbox
 printf '%s' 'ghp_your_token_here' > ~/.agent-sandbox/github-pat
 chmod 600 ~/.agent-sandbox/github-pat
 
-# 3. Set your git identity, then build + run.
-export GIT_USER_EMAIL="you@example.com"
-export GIT_USER_NAME="Your Name"
+# 3. Build + run. Your git identity is auto-detected from the host's git config
+#    (falling back to your gh account); export GIT_USER_EMAIL / GIT_USER_NAME only to override.
 bash bootstrap.sh
 
 # 4. First time only: authenticate Claude.
@@ -134,8 +133,8 @@ before running it overrides the default. (That's how the optional private overla
 
 | Variable | Required | Default | What it does |
 |---|---|---|---|
-| `GIT_USER_EMAIL` | **yes** | `you@example.com` | git commit identity inside the container |
-| `GIT_USER_NAME` | **yes** | `Your Name` | git commit identity |
+| `GIT_USER_EMAIL` | auto | host `git config`, else gh account | git commit identity; export to override |
+| `GIT_USER_NAME` | auto | host `git config`, else gh account | git commit identity; export to override |
 | `REPO_DIR` | no | `$HOME/projects/agent-sandbox` | where this repo lives on the host |
 | `PROJECTS_HOST_PATH` | no | `$HOME/projects` | host dir bind-mounted as `/projects` |
 | `AUDIT_HOST_PATH` | no | `$PROJECTS_HOST_PATH/.claude-audit` | host dir for the audit log |
