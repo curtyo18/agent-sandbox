@@ -13,34 +13,26 @@ rails, automatic config, and a full audit trail.
 ## Architecture at a glance
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph host["WSL2 host"]
-        L["launch.sh<br/>optional private wrapper<br/>(exports personal env)"] --> B["bootstrap.sh<br/>build image and run container"]
+        BOOT["bootstrap.sh<br/>build + run"]
     end
-    B -->|docker build / run| E
-
     subgraph ctr["claude-box container"]
-        E["entrypoint.sh"] --> S["sync_config<br/>clone/pull agent-config<br/>plus optional private overlay"]
-        S --> Q["render and start squid<br/>egress allowlist"]
-        Q --> R(["ready - sleep infinity"])
-        CB["cbox / cbox -c"] --> CL["claude<br/>--dangerously-skip-permissions"]
+        CL["claude"]
+        GR["guard rails:<br/>squid, gh/rm wrappers,<br/>secret-scan, audit log"]
     end
-
-    PAT[("claude-auth volume<br/>GitHub PAT")] -.-> S
-    CFG[("claude-cfg-cache<br/>~/.claude")] --- S
-    PROJ[("/projects bind-mount")] --- CL
-    GH["agent-config<br/>public, on GitHub"] -.->|clone via PAT| S
-    CL -->|HTTPS via proxy| Q
-    Q -->|allowlisted only| NET([internet])
-
-    GR["guard rails:<br/>gh wrapper - rm/rmdir wrappers<br/>pre-commit secret-scan - audit log"] -.- ctr
+    GH[("agent-config<br/>on GitHub")] -->|config at start| ctr
+    BOOT -->|docker build / run| ctr
+    you(["you"]) -->|cbox -c| CL
+    CL -.- GR
+    CL ==>|allowlisted HTTPS| NET([internet])
 ```
 
-The host runs `bootstrap.sh`, which builds the image and starts one long-lived container.
-At start, `entrypoint.sh` clones your config from `agent-config` (using a GitHub PAT held on
-a persistent volume), optionally rsyncs a private overlay on top, then renders and starts
-squid. Day-to-day you enter the container with `cbox`. The guard rails (squid, wrappers,
-secret-scan, audit) enforce regardless of what happens inside.
+`bootstrap.sh` on the WSL2 host builds the image and runs one long-lived container; you work
+inside it with `cbox`. Config is cloned from `agent-config` at startup, egress is HTTPS-only
+through an allowlist, and a layer of guard rails (command wrappers, secret-scan, audit log)
+wraps everything the agent does. The startup sequence is below; the *why* behind each choice
+is in [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 
@@ -80,6 +72,25 @@ cbox -c <repo>    # claude in /projects/<repo>
 
 If you cloned somewhere other than `~/projects/agent-sandbox`, set `REPO_DIR` and
 `PROJECTS_HOST_PATH` to match (see [Configuration](#configuration)).
+
+## How it boots
+
+When `bootstrap.sh` starts the container, `entrypoint.sh` runs once: it authenticates with
+your PAT, clones (or updates) `agent-config` into the persistent `~/.claude` volume —
+rsyncing the optional private overlay on top — then renders `squid.conf` from your allowlist
+and starts squid. After that it idles, ready for `cbox` / `docker exec`.
+
+```mermaid
+flowchart TD
+    E["entrypoint.sh<br/>(once, at container start)"] --> SC["sync_config"]
+    PAT[("claude-auth volume:<br/>GitHub PAT")] -.->|authenticates| SC
+    SC -->|clone / pull| AC["agent-config (public)"]
+    OV["agent-config-private<br/>(optional overlay)"] -.->|rsync on top| SC
+    SC --> CFG[("~/.claude<br/>cfg-cache volume")]
+    E --> RS["render squid.conf<br/>from allowlist"]
+    RS --> SQ["start squid"]
+    SQ --> RDY(["ready — docker exec / cbox"])
+```
 
 ## Configuration
 
@@ -166,6 +177,14 @@ docker exec -it claude-sandbox bash -lc 'cd /projects && claude --dangerously-sk
 Without the PAT the container still starts, but config-clone is skipped (no skills/hooks).
 
 ## Network allowlist
+
+```mermaid
+flowchart LR
+    T["in-container tools<br/>claude, git, npm, pip, curl<br/>(HTTPS_PROXY set)"] -->|all HTTPS| SQ{"on the<br/>allowlist?"}
+    AL["network-allowlist.conf<br/>+ per-project<br/>.claude-allowlist.conf"] -.->|defines| SQ
+    SQ -->|yes| OK([allowed host])
+    SQ -->|no| NO["blocked + logged"]
+```
 
 Default strict allowlist: anthropic.com, claude.ai, github.com, npmjs.org, pypi.org,
 Cloudflare API. Edit `network-allowlist.conf` in your agent-config and restart the
