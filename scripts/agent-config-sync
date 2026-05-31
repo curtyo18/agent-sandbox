@@ -25,10 +25,19 @@ else
   echo "                                 or:  cbox-refresh-pat <path>  (a PAT file)" >&2
 fi
 
-# ── Always: scrub any legacy credential-in-URL remote (hygiene; unauth clones are already clean).
+# ── Per-host credentials for non-GitHub hosts: install the optional git-credentials file and
+# register git's native store helper. Coexists with gh's github helper; independent of the PAT
+# (a user may have only GitLab/Bitbucket creds). Credentials live in the store, never in .git/config.
+if [[ -s "$AUTH_DIR/git-credentials" ]]; then
+  install -m 600 "$AUTH_DIR/git-credentials" "$CLAUDE_HOME/.git-credentials" 2>/dev/null || true
+  git config --global credential.helper store 2>/dev/null || true
+  log_event "agent-config-sync" "git-credentials-installed" ""
+fi
+
+# ── Always: scrub any embedded-credential remote on the config repo (hygiene; works for any host).
 if [[ -d "$CONFIG_DIR/.git" ]]; then
   current_url="$(git -C "$CONFIG_DIR" remote get-url origin 2>/dev/null || true)"
-  if [[ "$current_url" == *"@github.com/"* ]]; then
+  if [[ "$current_url" == *"://"*"@"* ]]; then
     git -C "$CONFIG_DIR" remote set-url origin "$AGENT_CONFIG_REPO"
     log_event "agent-config-sync" "config-remote-url-scrubbed" ""
   fi

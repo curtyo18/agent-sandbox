@@ -30,6 +30,10 @@ else
     # No allowlist found (e.g. config clone failed): tombstone ACL so squid still parses.
     includes=$'\n# fallback: no allowlist found, deny everything\nacl allowed_hosts dstdomain .invalid-no-allowlist\n'
   fi
+  # Curated baseline: the major public git hosts are always reachable so the sandbox works against
+  # GitHub/GitLab/Bitbucket out of the box (self-hosted hosts go in network-allowlist.conf). Appended
+  # after the tombstone so git stays reachable for recovery even if the agent-config clone failed.
+  includes+=$'\n# curated git hosts (always on)\nacl allowed_hosts dstdomain .github.com\nacl allowed_hosts dstdomain .gitlab.com\nacl allowed_hosts dstdomain .bitbucket.org\n'
   awk -v inc="$includes" '{gsub(/\{ALLOWLIST_INCLUDES\}/, inc); print}' "$TEMPLATE" > "$TMP"
 fi
 

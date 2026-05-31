@@ -58,6 +58,7 @@ GIT_USER_EMAIL="${GIT_USER_EMAIL:-}"            # git commit identity (auto-dete
 GIT_USER_NAME="${GIT_USER_NAME:-}"
 # ──────────────────────────────────────────────────────────────────────────────
 PAT_FILE="${HOME}/.agent-sandbox/github-pat"
+GIT_CREDS_FILE="${HOME}/.agent-sandbox/git-credentials"   # optional per-host creds for non-github hosts
 
 if [[ "$PRINT_CONFIG" == 1 ]]; then
   cat <<EOF
@@ -190,15 +191,25 @@ docker run -d \
   -e AGENT_CONFIG_REPO="${AGENT_CONFIG_REPO:-}" \
   "$IMAGE_TAG"
 
-# If PAT is on host, copy it into the auth volume now (one-time wiring).
+# Provision host credential files into the auth volume (one-time wiring), then restart once so the
+# entrypoint re-syncs with them. github-pat = GitHub's token; git-credentials = per-host lines for
+# any other git host (GitLab/Bitbucket/Gitea/self-hosted).
+provisioned=0
 if [[ -s "$PAT_FILE" ]]; then
-  echo "==> Provisioning PAT into claude-auth volume"
+  echo "==> Provisioning GitHub token into claude-auth volume"
   docker cp "$PAT_FILE" "$CONTAINER_NAME:/home/claude/.claude-auth/github-pat"
   docker exec "$CONTAINER_NAME" chown claude:claude /home/claude/.claude-auth/github-pat
   docker exec "$CONTAINER_NAME" chmod 600 /home/claude/.claude-auth/github-pat
-  # Trigger config sync now by restarting (entrypoint reads the PAT on start).
-  docker restart "$CONTAINER_NAME"
+  provisioned=1
 fi
+if [[ -s "$GIT_CREDS_FILE" ]]; then
+  echo "==> Provisioning per-host git-credentials into claude-auth volume"
+  docker cp "$GIT_CREDS_FILE" "$CONTAINER_NAME:/home/claude/.claude-auth/git-credentials"
+  docker exec "$CONTAINER_NAME" chown claude:claude /home/claude/.claude-auth/git-credentials
+  docker exec "$CONTAINER_NAME" chmod 600 /home/claude/.claude-auth/git-credentials
+  provisioned=1
+fi
+[[ "$provisioned" == 1 ]] && docker restart "$CONTAINER_NAME"
 
 echo "==> Installing cbox helper to /usr/local/bin"
 sudo ln -sf "$REPO_DIR/scripts/cbox" /usr/local/bin/cbox

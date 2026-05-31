@@ -51,6 +51,16 @@ network-dead shell, and `cbox-refresh-pat` adds a token to a running container �
 same sync and reloading squid — without a restart. (The sync logic lives in standalone scripts
 precisely so the boot path and the refresh path are the same code.)
 
+### Any git host, GitHub stays on `gh`
+
+GitHub auth stays on the `gh` credential helper; other hosts (GitLab/Bitbucket/Gitea/self-hosted)
+use git's native per-host credential store, fed by an optional `~/.agent-sandbox/git-credentials`
+file. The two coexist, credentials never land in repo `.git/config`, and — because only `gh` is
+installed — a non-GitHub host is reachable only through `git` (which can't delete a repo or flip
+visibility), so no extra destructive-op guard is needed (a provider CLI ships only once its guard
+does). A curated default allowlist (`github.com`/`gitlab.com`/`bitbucket.org`) makes the major
+hosts reachable out of the box; self-hosted hosts go in `network-allowlist.conf`.
+
 ## Bind-mount all of `/projects`, not per-repo
 
 The container sees the host's entire workspace as `/projects`. Could have mounted per-repo on demand instead.

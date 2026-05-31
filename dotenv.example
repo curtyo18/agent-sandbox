@@ -26,3 +26,7 @@ TZ=Europe/London                # applied at image build (--build-arg)
 # ── GitHub token: NOT stored here. Either `gh auth login` on the host (bootstrap auto-fills via
 #    `gh auth token`), drop a PAT at ~/.agent-sandbox/github-pat (chmod 600), or run
 #    `cbox-refresh-pat` on a running container. Tokenless still gives a working session.
+
+# ── Other git hosts (GitLab/Bitbucket/Gitea/self-hosted): put one credential line per host in
+#    ~/.agent-sandbox/git-credentials (e.g. https://oauth2:TOKEN@gitlab.com) and allowlist the host.
+#    See "Using other git hosts" in the README.

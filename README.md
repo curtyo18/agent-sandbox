@@ -123,6 +123,34 @@ tokenless guarantee is for the public default. And because the container's env i
 set; a token refresh covers auth and push for the repos already configured.) The token lives on
 the persistent `claude-auth` volume (chmod 600), never baked into the image.
 
+## Using other git hosts
+
+GitHub works out of the box; GitLab, Bitbucket, Gitea, and self-hosted instances work too — the
+container's git operations aren't GitHub-specific. To use another host:
+
+1. **Allowlist it.** `github.com`, `gitlab.com`, and `bitbucket.org` are reachable by default. For
+   anything else (Codeberg, self-hosted), add it to `network-allowlist.conf` in your agent-config,
+   e.g. `acl allowed_hosts dstdomain .your-host.com`, then restart.
+2. **Add a credential.** Put one line per host in `~/.agent-sandbox/git-credentials` (chmod 600);
+   bootstrap provisions it and the container serves it via git's credential store. The username
+   prefix differs by provider:
+
+   | Host | `~/.agent-sandbox/git-credentials` line | Open a PR/MR |
+   |---|---|---|
+   | GitHub | *(uses your `gh` login — nothing to add)* | `gh pr create` |
+   | GitLab | `https://oauth2:<token>@gitlab.com` | push prints an MR URL |
+   | Bitbucket | `https://<user>:<app-password>@bitbucket.org` | push prints a PR URL |
+   | Gitea / self-hosted | `https://<token>@your.host` | push prints a PR URL |
+
+3. **Work as usual.** `git clone/commit/push/branch` against that host now work. Opening a PR/MR is
+   done via the URL the host prints on push — provider CLIs like `glab` aren't installed, which is
+   also the safety boundary: with no provider CLI, a non-GitHub host is reachable only through
+   `git`, which can't delete a repo or change its visibility.
+
+**SSH instead?** An SSH remote (`git@host:you/repo.git`) plus a mounted deploy key is a zero-token
+option, but port 22 egress is **not** filtered by the squid allowlist — it widens the egress
+surface. HTTPS + `git-credentials` keeps everything inside the proxy and is the default.
+
 ## How it boots
 
 When `bootstrap.sh` starts the container, `entrypoint.sh` runs once: it calls `agent-config-sync`,
