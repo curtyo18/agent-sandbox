@@ -43,6 +43,10 @@ is in [docs/architecture.md](docs/architecture.md).
 
 ## Quick start (WSL2)
 
+**Fastest path:** `bash bootstrap.sh --init` detects your `gh` login, asks for your git
+identity and projects dir, writes `~/.agent-sandbox/.env`, then builds. The manual steps below
+are the equivalent if you'd rather set everything yourself.
+
 ```bash
 # 1. Clone under your projects directory (the path defaults assume ~/projects).
 git clone https://github.com/curtyo18/agent-sandbox.git ~/projects/agent-sandbox
@@ -145,6 +149,11 @@ flowchart TD
 `bootstrap.sh` reads each setting as `VAR="${VAR:-default}"`, so anything you `export`
 before running it overrides the default. (That's how the optional private overlay's
 `launch.sh` drives bootstrap without editing the tracked file.)
+
+You can also put any of these in `~/.agent-sandbox/.env` (copy `dotenv.example`, or run
+`bootstrap.sh --init`) instead of exporting them each time. Precedence is **exported env >
+`.env` > the defaults below**, so a wrapper that exports vars always wins over the file. Run
+`bootstrap.sh --print-config` to see the resolved values without building.
 
 | Variable | Required | Default | What it does |
 |---|---|---|---|

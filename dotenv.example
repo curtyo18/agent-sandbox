@@ -1,0 +1,28 @@
+# agent-sandbox configuration — copy to ~/.agent-sandbox/.env, or run `bootstrap.sh --init`.
+# bootstrap.sh loads this file, but ANY variable you export before running bootstrap WINS over
+# it (so a personal launch.sh wrapper keeps control). Lines are KEY=value; no code is executed.
+# Blank value = use bootstrap's built-in default / auto-detection.
+
+# ── Git commit identity (blank → auto-detected from host git config / gh) ──
+GIT_USER_NAME=
+GIT_USER_EMAIL=
+
+# ── Host layout ──
+REPO_DIR=                       # where this repo is checked out (blank → default)
+PROJECTS_HOST_PATH=             # host dir bind-mounted as /projects
+AUDIT_HOST_PATH=                # blank → $PROJECTS_HOST_PATH/.claude-audit
+
+# ── Config source — point at your own fork to use your config ──
+AGENT_CONFIG_REPO=
+AGENT_CONFIG_PRIVATE_REPO=      # optional private overlay
+
+# ── Container ──
+CONTAINER_NAME=                 # blank → claude-box
+IMAGE_TAG=                      # blank → claude-box:latest
+CONTAINER_MODE=default          # or: research (then set RESEARCH_REPO)
+RESEARCH_REPO=
+TZ=Europe/London                # applied at image build (--build-arg)
+
+# ── GitHub token: NOT stored here. Either `gh auth login` on the host (bootstrap auto-fills via
+#    `gh auth token`), drop a PAT at ~/.agent-sandbox/github-pat (chmod 600), or run
+#    `cbox-refresh-pat` on a running container. Tokenless still gives a working session.

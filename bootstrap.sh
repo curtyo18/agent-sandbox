@@ -5,6 +5,45 @@
 
 set -euo pipefail
 
+# ── First-run / config (guided init) ───────────────────────────────────────────
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+DO_INIT=0; NONINTERACTIVE=0; PRINT_CONFIG=0
+for arg in "$@"; do
+  case "$arg" in
+    --init)                   DO_INIT=1 ;;
+    --non-interactive)        NONINTERACTIVE=1 ;;
+    --print-config|--dry-run) PRINT_CONFIG=1 ;;
+  esac
+done
+
+ENV_FILE="${AGENT_SANDBOX_ENV:-$HOME/.agent-sandbox/.env}"
+# Load ~/.agent-sandbox/.env WITHOUT clobbering anything already exported, so a caller's env
+# (e.g. a personal launch.sh) always wins over the file. No source/eval: KEY=value lines only.
+load_env_file() {
+  [[ -f "$1" ]] || return 0
+  local line key val
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    line="${line#export }"
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"; key="${key%%[[:space:]]}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    [[ -n "${!key+x}" ]] && continue
+    val="${line#*=}"; val="${val#"${val%%[![:space:]]*}"}"
+    if [[ "$val" == \"*\" && ${#val} -ge 2 ]]; then val="${val:1:${#val}-2}"
+    elif [[ "$val" == \'*\' && ${#val} -ge 2 ]]; then val="${val:1:${#val}-2}"; fi
+    export "$key=$val"
+  done < "$1"
+}
+
+if [[ "$DO_INIT" == 1 ]]; then
+  [[ "$NONINTERACTIVE" == 1 ]] && export AGENT_INIT_NONINTERACTIVE=1
+  bash "$SELF_DIR/scripts/agent-init" || { echo "init aborted; not building." >&2; exit 1; }
+fi
+load_env_file "$ENV_FILE"
+# ────────────────────────────────────────────────────────────────────────────────
+
 # ── Customise these for your machine ──────────────────────────────────────────
 # Each setting falls back to the default below if not exported by the caller.
 # A private wrapper script can `export VAR=...` then `exec bash bootstrap.sh`
@@ -19,6 +58,25 @@ GIT_USER_EMAIL="${GIT_USER_EMAIL:-}"            # git commit identity (auto-dete
 GIT_USER_NAME="${GIT_USER_NAME:-}"
 # ──────────────────────────────────────────────────────────────────────────────
 PAT_FILE="${HOME}/.agent-sandbox/github-pat"
+
+if [[ "$PRINT_CONFIG" == 1 ]]; then
+  cat <<EOF
+REPO_DIR=$REPO_DIR
+PROJECTS_HOST_PATH=$PROJECTS_HOST_PATH
+AUDIT_HOST_PATH=$AUDIT_HOST_PATH
+CONTAINER_NAME=$CONTAINER_NAME
+IMAGE_TAG=$IMAGE_TAG
+AGENT_SANDBOX_REPO=$AGENT_SANDBOX_REPO
+AGENT_CONFIG_REPO=${AGENT_CONFIG_REPO:-}
+AGENT_CONFIG_PRIVATE_REPO=${AGENT_CONFIG_PRIVATE_REPO:-}
+CONTAINER_MODE=${CONTAINER_MODE:-default}
+RESEARCH_REPO=${RESEARCH_REPO:-}
+GIT_USER_NAME=${GIT_USER_NAME:-}
+GIT_USER_EMAIL=${GIT_USER_EMAIL:-}
+TZ=${TZ:-Europe/London}
+EOF
+  exit 0
+fi
 
 echo "==> Checking Docker"
 if ! command -v docker >/dev/null; then
@@ -106,7 +164,9 @@ echo "    using $GIT_USER_NAME <$GIT_USER_EMAIL>"
 
 echo "==> Building image"
 cd "$REPO_DIR"
-docker build -t "$IMAGE_TAG" .
+build_args=()
+[[ -n "${TZ:-}" ]] && build_args+=(--build-arg "TZ=$TZ")
+docker build -t "$IMAGE_TAG" "${build_args[@]}" .
 
 echo "==> Stopping any existing container"
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true

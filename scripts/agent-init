@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# agent-init — first-run scaffold: writes ~/.agent-sandbox/.env from detected/asked values.
+# Run via `bootstrap.sh --init` (which then continues into the build), or directly.
+# --non-interactive (or AGENT_INIT_NONINTERACTIVE=1): take values from env + auto-detect, no prompts.
+set -euo pipefail
+
+ENV_FILE="${AGENT_SANDBOX_ENV:-$HOME/.agent-sandbox/.env}"
+SELF_REPO="$(cd "$(dirname "$0")/.." && pwd)"   # the agent-sandbox checkout this script lives in
+
+NONINTERACTIVE=0
+[[ "${AGENT_INIT_NONINTERACTIVE:-0}" == 1 ]] && NONINTERACTIVE=1
+for a in "$@"; do [[ "$a" == "--non-interactive" ]] && NONINTERACTIVE=1; done
+
+if [[ "$NONINTERACTIVE" != 1 && ! -t 0 ]]; then
+  echo "agent-init: no TTY for prompts. Re-run with --non-interactive (uses env vars + auto-detect)." >&2
+  exit 1
+fi
+
+# Caller-provided env wins; an existing .env is the fallback; then auto-detect. Capture the caller's
+# values BEFORE sourcing the existing .env (sourcing would otherwise overwrite them).
+env_name="${GIT_USER_NAME:-}"; env_email="${GIT_USER_EMAIL:-}"; env_projects="${PROJECTS_HOST_PATH:-}"
+if [[ -f "$ENV_FILE" ]]; then set -a; . "$ENV_FILE" 2>/dev/null || true; set +a; fi
+
+def_projects="${env_projects:-${PROJECTS_HOST_PATH:-$HOME/projects}}"
+def_name="${env_name:-${GIT_USER_NAME:-$(git config --global user.name 2>/dev/null || true)}}"
+def_email="${env_email:-${GIT_USER_EMAIL:-$(git config --global user.email 2>/dev/null || true)}}"
+
+gh_ok=0; gh_login=""
+if command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then
+  gh_ok=1; gh_login="$(gh api user --jq .login 2>/dev/null || true)"
+fi
+
+ask() {  # ask <prompt> <default> -> echoes the answer (default if blank or non-interactive)
+  local prompt="$1" default="$2" ans=""
+  if [[ "$NONINTERACTIVE" == 1 ]]; then echo "$default"; return 0; fi
+  read -r -p "$prompt [$default]: " ans || true
+  echo "${ans:-$default}"
+}
+
+echo "== agent-sandbox init =="
+gh_choice="use"
+if [[ "$NONINTERACTIVE" != 1 ]]; then
+  if [[ "$gh_ok" == 1 ]]; then
+    echo "Detected a working host 'gh' login${gh_login:+ ($gh_login)}."
+    a="$(ask "GitHub access: [u]se this login / [s]kip (tokenless) / [p]AT file" "u")"
+  else
+    echo "No usable host 'gh' login detected."
+    a="$(ask "GitHub access: [s]kip (tokenless) / [p]AT file" "s")"
+  fi
+  case "${a:0:1}" in s|S) gh_choice="skip";; p|P) gh_choice="pat";; *) gh_choice="use";; esac
+fi
+
+projects="$(ask "Projects directory (bind-mounted as /projects)" "$def_projects")"
+name="$(ask "Git commit name" "${def_name:-}")"
+email="$(ask "Git commit email" "${def_email:-}")"
+
+mkdir -p "$(dirname "$ENV_FILE")"
+( umask 077; cat > "$ENV_FILE" <<EOF
+# agent-sandbox config — sourced by bootstrap.sh. An exported env var still wins over these.
+# Written by 'bootstrap.sh --init'. Edit freely, or re-run --init to regenerate.
+REPO_DIR="$SELF_REPO"
+GIT_USER_NAME="$name"
+GIT_USER_EMAIL="$email"
+PROJECTS_HOST_PATH="$projects"
+AUDIT_HOST_PATH="$projects/.claude-audit"
+# AGENT_CONFIG_REPO=            # point at your own fork to use your config
+# AGENT_CONFIG_PRIVATE_REPO=    # optional private overlay
+# CONTAINER_MODE=default        # or: research (then set RESEARCH_REPO=)
+# TZ=Europe/London
+EOF
+)
+
+echo "Wrote $ENV_FILE"
+case "$gh_choice" in
+  use)  echo "GitHub: bootstrap will reuse your host 'gh auth token' (nothing to mint).";;
+  skip) echo "GitHub: starting tokenless — add a token later with 'cbox-refresh-pat' (no restart).";;
+  pat)  echo "GitHub: drop a PAT (repo scope) at ~/.agent-sandbox/github-pat (chmod 600), or use 'cbox-refresh-pat <path>'.";;
+esac
