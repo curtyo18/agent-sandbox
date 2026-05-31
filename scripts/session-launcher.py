@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Session launcher — tiny HTTP utility that wakes a named `claude --remote-control` session.
 
-Rather than a naive "did tmux start?" check (which reports success even when claude is hung
-on a prompt), this inspects the session's pane and reports the *real* state — connected /
-still starting / blocked on a prompt / exited — so failures surface in the UI instead of
-silently hanging.
+It inspects the session's pane and reports the *real* state — connected / starting / stuck /
+exited — so failures surface in the UI instead of silently hanging. The page gives immediate
+feedback on tap (a pulsing "starting…") and polls `/status` until the session reaches a
+definitive state, so the button never just hangs.
 
 Configure via env vars:
   LAUNCHER_SESSION  tmux session name (default: claude-session)
@@ -13,17 +13,16 @@ Configure via env vars:
 """
 
 import html
+import json
 import os
 import shlex
 import subprocess
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT         = int(os.environ.get("LAUNCHER_PORT", "8088"))
 SESSION_NAME = os.environ.get("LAUNCHER_SESSION", "claude-session")
 PROJECT_PATH = os.environ.get("LAUNCHER_PROJECT", "/projects")
 LOG_FILE     = "/tmp/session-launcher-claude.log"
-WAKE_TIMEOUT = 15   # seconds to wait for a definitive state after spawning
 
 # Pane text meaning "up and Remote Control connected".
 OK_MARKERS = ("remote control active", "remote-control is active")
@@ -43,34 +42,92 @@ STATES = {
 }
 HINTS = {
     "connected": "Switch to the Claude app → Code tab; this session should be listed.",
-    "starting":  "Reload in a few seconds. If it stays here, the output above shows why.",
-    "stuck":     "claude is blocked on the prompt shown above and can't be answered remotely. "
+    "starting":  "Connecting… this can take ~10s. The output below updates live.",
+    "stuck":     "claude is blocked on the prompt shown below and can't be answered remotely. "
                  "A fresh container normally seeds folder-trust automatically.",
-    "exited":    "claude isn't running. Tap the button; if it dies again the output above says why.",
+    "exited":    "claude isn't running. Tap the button; if it dies again the output below says why.",
 }
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+PAGE = """<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{session}</title>
+<title>%%SESSION%%</title>
 <style>
- body{{font-family:-apple-system,system-ui,sans-serif;background:#111;color:#eee;margin:0;
-   padding:1.5rem;min-height:100vh;display:flex;flex-direction:column;align-items:center;}}
- h1{{font-size:1.4rem;margin:.2rem 0;}}
- .state{{font-family:monospace;font-size:1rem;margin:.5rem 0 1.2rem;text-align:center;}}
- .ok{{color:#6ee7b7;}} .warn{{color:#fcd34d;}} .bad{{color:#fca5a5;}}
- a.btn{{display:inline-block;padding:1rem 2rem;background:#2563eb;color:#fff;text-decoration:none;
-   border-radius:.5rem;font-size:1.1rem;font-weight:600;min-width:220px;text-align:center;}}
- pre{{width:100%;max-width:680px;background:#000;color:#cbd5e1;border:1px solid #333;
-   border-radius:.5rem;padding:.75rem;overflow:auto;font-size:.8rem;line-height:1.3;
-   white-space:pre-wrap;margin-top:1.2rem;}}
- .hint{{opacity:.6;font-size:.8rem;margin-top:.5rem;text-align:center;max-width:680px;}}
-</style></head><body>
- <h1>{session}</h1>
- <p class="state {css}">{headline}</p>
- <a class="btn" href="/wake">{button}</a>
- {pane_block}
- <p class="hint">{hint}</p>
+ body{font-family:-apple-system,system-ui,sans-serif;background:#111;color:#eee;margin:0;
+   padding:1.5rem;min-height:100vh;display:flex;flex-direction:column;align-items:center;}
+ h1{font-size:1.4rem;margin:.2rem 0;}
+ .state{font-family:monospace;font-size:1rem;margin:.5rem 0 1.2rem;text-align:center;min-height:1.2em;}
+ .ok{color:#6ee7b7;} .bad{color:#fca5a5;}
+ .warn{color:#fcd34d;animation:pulse 1.2s ease-in-out infinite;}
+ @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+ a.btn{display:inline-block;padding:1rem 2rem;background:#2563eb;color:#fff;text-decoration:none;
+   border-radius:.5rem;font-size:1.1rem;font-weight:600;min-width:220px;text-align:center;
+   transition:background .2s;}
+ a.btn.busy{background:#475569;pointer-events:none;opacity:.85;}
+ pre{width:100%;max-width:680px;background:#000;color:#cbd5e1;border:1px solid #333;border-radius:.5rem;
+   padding:.75rem;overflow:auto;font-size:.8rem;line-height:1.3;white-space:pre-wrap;margin-top:1.2rem;}
+ pre:empty{display:none;}
+ .hint{opacity:.6;font-size:.8rem;margin-top:.5rem;text-align:center;max-width:680px;}
+</style></head>
+<body data-session="%%SESSION%%" data-state="%%STATE%%">
+ <h1>%%SESSION%%</h1>
+ <p class="state %%CSS%%" id="state">%%HEADLINE%%</p>
+ <a class="btn" id="go" href="/wake">%%BUTTON%%</a>
+ <pre id="pane">%%PANE%%</pre>
+ <p class="hint" id="hint">%%HINT%%</p>
+<script>
+(function(){
+  var SESSION = document.body.dataset.session;
+  var TERMINAL = ["connected", "stuck", "exited"];
+  var stateEl = document.getElementById("state");
+  var paneEl  = document.getElementById("pane");
+  var hintEl  = document.getElementById("hint");
+  var go      = document.getElementById("go");
+  var polling = false;
+
+  function apply(s){
+    stateEl.textContent = s.headline;
+    stateEl.className = "state " + s.css;
+    paneEl.textContent = s.pane || "";
+    if (s.hint){ hintEl.textContent = s.hint; }
+    go.textContent = (s.state === "exited" ? "Start " : "Restart ") + SESSION;
+    if (TERMINAL.indexOf(s.state) >= 0){ go.classList.remove("busy"); }
+  }
+  function poll(){
+    fetch("/status", {cache: "no-store"})
+      .then(function(r){ return r.json(); })
+      .then(function(s){
+        apply(s);
+        if (TERMINAL.indexOf(s.state) < 0){ setTimeout(poll, 1500); }
+        else { polling = false; }
+      })
+      .catch(function(){ polling = false; });
+  }
+  function startPolling(){ if (!polling){ polling = true; poll(); } }
+
+  go.addEventListener("click", function(e){
+    e.preventDefault();
+    stateEl.textContent = "⟳ starting " + SESSION + "…";
+    stateEl.className = "state warn";
+    paneEl.textContent = "";
+    go.classList.add("busy");
+    go.textContent = "starting…";
+    fetch("/wake", {cache: "no-store"}).then(function(r){
+      if (!r.ok){
+        return r.text().then(function(t){
+          stateEl.textContent = (t || "wake failed").trim();
+          stateEl.className = "state bad";
+          go.classList.remove("busy");
+          go.textContent = "Try again";
+        });
+      }
+      startPolling();
+    }).catch(function(){ location.href = "/wake"; });  // no-fetch fallback
+  });
+
+  if (document.body.dataset.state === "starting"){ startPolling(); }
+})();
+</script>
 </body></html>
 """
 
@@ -109,8 +166,9 @@ def session_status():
 def wake_session() -> None:
     """Kill any existing session, then spawn a fresh claude in a real TTY pane.
 
-    Note: claude must keep its TTY — piping its stdout makes it drop to non-interactive
-    --print mode and exit. So we mirror the pane to a log via `pipe-pane` instead of a pipe.
+    claude must keep its TTY — piping its stdout makes it drop to non-interactive --print
+    mode and exit — so we mirror the pane to a log via `pipe-pane` instead of a pipe.
+    Returns immediately; the client polls /status to watch it connect.
     """
     _tmux("kill-session", "-t", SESSION_NAME)  # tolerate "no such session"
     cmd = (f"cd {shlex.quote(PROJECT_PATH)} && "
@@ -124,16 +182,16 @@ def wake_session() -> None:
 def render_page() -> bytes:
     state, pane = session_status()
     css, headline = STATES[state]
-    button = f"Start {SESSION_NAME}" if state == "exited" else f"Restart {SESSION_NAME}"
-    pane_block = f"<pre>{html.escape(pane)}</pre>" if pane else ""
-    return HTML_TEMPLATE.format(
-        session=html.escape(SESSION_NAME),
-        css=css,
-        headline=html.escape(headline),
-        button=html.escape(button),
-        pane_block=pane_block,
-        hint=html.escape(HINTS[state]),
-    ).encode("utf-8")
+    button = ("Start " if state == "exited" else "Restart ") + SESSION_NAME
+    out = (PAGE
+           .replace("%%SESSION%%", html.escape(SESSION_NAME))
+           .replace("%%STATE%%", state)
+           .replace("%%CSS%%", css)
+           .replace("%%HEADLINE%%", html.escape(headline))
+           .replace("%%BUTTON%%", html.escape(button))
+           .replace("%%PANE%%", html.escape(pane))
+           .replace("%%HINT%%", html.escape(HINTS[state])))
+    return out.encode("utf-8")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -147,20 +205,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/":
             self._send(200, render_page())
+        elif self.path == "/status":
+            state, pane = session_status()
+            css, headline = STATES[state]
+            body = json.dumps({"state": state, "css": css, "headline": headline,
+                               "pane": pane, "hint": HINTS[state]}).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
         elif self.path == "/wake":
+            # Spawn and return immediately — the client shows "starting…" and polls /status.
             try:
                 wake_session()
-            except Exception as e:  # surface the failure instead of pretending success
+            except Exception as e:
                 self._send(500, f"wake failed: {html.escape(str(e))}\n".encode("utf-8"),
                            "text/plain; charset=utf-8")
                 return
-            # Wait for a definitive outcome so the status page shows the real result,
-            # not a perpetual "starting". Break early once connected / stuck / exited.
-            deadline = time.time() + WAKE_TIMEOUT
-            while time.time() < deadline:
-                time.sleep(1)
-                if session_status()[0] in ("connected", "stuck", "exited"):
-                    break
             self.send_response(302)
             self.send_header("Location", "/")
             self.end_headers()
