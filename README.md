@@ -132,8 +132,9 @@ container's git operations aren't GitHub-specific. To use another host:
    anything else (Codeberg, self-hosted), add it to `network-allowlist.conf` in your agent-config,
    e.g. `acl allowed_hosts dstdomain .your-host.com`, then restart.
 2. **Add a credential.** Put one line per host in `~/.agent-sandbox/git-credentials` (chmod 600);
-   bootstrap provisions it and the container serves it via git's credential store. The username
-   prefix differs by provider:
+   bootstrap provisions it and the container serves it via git's credential store — this runs
+   alongside your GitHub `gh` login (separate helpers), so it never disturbs GitHub access. The
+   username prefix differs by provider:
 
    | Host | `~/.agent-sandbox/git-credentials` line | Open a PR/MR |
    |---|---|---|
@@ -175,13 +176,15 @@ flowchart TD
 ## Configuration
 
 `bootstrap.sh` reads each setting as `VAR="${VAR:-default}"`, so anything you `export`
-before running it overrides the default. (That's how the optional private overlay's
-`launch.sh` drives bootstrap without editing the tracked file.)
+before running it overrides the default — handy for a personal wrapper script that exports
+your values and then runs bootstrap without editing the tracked file.
 
 You can also put any of these in `~/.agent-sandbox/.env` (copy `dotenv.example`, or run
 `bootstrap.sh --init`) instead of exporting them each time. Precedence is **exported env >
 `.env` > the defaults below**, so a wrapper that exports vars always wins over the file. Run
-`bootstrap.sh --print-config` to see the resolved values without building.
+`bootstrap.sh --print-config` (alias `--dry-run`) to see the resolved values without building;
+add `--non-interactive` to `--init` to script first-run setup in CI (it reads the same vars from
+the environment instead of prompting).
 
 | Variable | Required | Default | What it does |
 |---|---|---|---|
@@ -202,9 +205,9 @@ You can also put any of these in `~/.agent-sandbox/.env` (copy `dotenv.example`,
 Guard-rail override env vars (`CLAUDE_UNLOCK_DESTRUCTIVE`, `CLAUDE_ALLOW_SECRET_COMMIT`) are
 documented in [docs/operations.md](docs/operations.md).
 
-> The host-path defaults (`$HOME/...`) are placeholders. If your layout differs, export the
-> vars above — or, like the maintainer, drive `bootstrap.sh` from a tiny private wrapper that
-> exports them and then `exec`s this script.
+> The host-path defaults (`$HOME/...`) are placeholders. If your layout differs, put your values
+> in `~/.agent-sandbox/.env` — or `export` them, or drive `bootstrap.sh` from a small private
+> wrapper that exports them and then `exec`s this script.
 
 ## Private config overlay (optional)
 
@@ -273,10 +276,12 @@ flowchart LR
     SQ -->|no| NO["blocked + logged"]
 ```
 
-Default strict allowlist: anthropic.com, claude.ai, github.com, npmjs.org, pypi.org,
-Cloudflare API. Edit `network-allowlist.conf` in your agent-config and restart the
-container. See [docs/operations.md](docs/operations.md) for adding hosts globally or
-per-project.
+Two sources feed the allowlist. **The curated git hosts — `github.com`, `gitlab.com`, and
+`bitbucket.org` — are always allowed**, baked into `render-squid-conf` so they survive even if
+the config clone fails. Everything else comes from `network-allowlist.conf` in your agent-config
+(by default: Anthropic/Claude, npm, PyPI, GitHub raw + ghcr, Cloudflare, and a few more). To add
+a host, edit `network-allowlist.conf` in your agent-config and restart the container. See
+[docs/operations.md](docs/operations.md) for adding hosts globally or per-project.
 
 ## Phone access (optional)
 

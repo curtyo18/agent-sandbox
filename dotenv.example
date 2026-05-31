@@ -1,6 +1,6 @@
 # agent-sandbox configuration — copy to ~/.agent-sandbox/.env, or run `bootstrap.sh --init`.
 # bootstrap.sh loads this file, but ANY variable you export before running bootstrap WINS over
-# it (so a personal launch.sh wrapper keeps control). Lines are KEY=value; no code is executed.
+# it (so a personal wrapper script that exports vars keeps control). Lines are KEY=value; no code is executed.
 # Blank value = use bootstrap's built-in default / auto-detection.
 
 # ── Git commit identity (blank → auto-detected from host git config / gh) ──
