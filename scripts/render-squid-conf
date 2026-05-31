@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# render-squid-conf — render the squid config from the template + agent-config allowlist +
+# per-project allowlists. Extracted so both entrypoint.sh and cbox-refresh-pat can (re)render.
+# SQUID_CONF_OUT defaults to the live path (written via sudo); override it to test without sudo.
+set -uo pipefail
+# shellcheck source=/dev/null
+. "${AGENT_LIB:-/usr/local/bin/agent-lib.sh}"
+
+OUT="${SQUID_CONF_OUT:-/etc/squid/squid.conf}"
+TEMPLATE="${SQUID_CONF_TEMPLATE:-/etc/squid/squid.conf.template}"
+TMP="$(mktemp)"
+
+if [[ "${CONTAINER_MODE:-default}" == "research" ]]; then
+  # Research mode: open squid (full internet, still audited via access.log).
+  awk '{gsub(/\{ALLOWLIST_INCLUDES\}/, "\n# research mode: open access\nhttp_access allow all\n"); print}' "$TEMPLATE" > "$TMP"
+  sed -i '/^http_access allow allowed_hosts/d' "$TMP"
+  sed -i '/^http_access deny all/d' "$TMP"
+else
+  includes=""
+  if [[ -f "$CONFIG_DIR/network-allowlist.conf" ]]; then
+    includes+=$'\n# from agent-config/network-allowlist.conf\n'
+    includes+=$(cat "$CONFIG_DIR/network-allowlist.conf")
+  fi
+  for plf in /projects/*/.claude-allowlist.conf; do
+    [[ -f "$plf" ]] || continue
+    includes+=$'\n# from '"$plf"$'\n'
+    includes+=$(cat "$plf")
+  done
+  if [[ -z "$includes" ]]; then
+    # No allowlist found (e.g. config clone failed): tombstone ACL so squid still parses.
+    includes=$'\n# fallback: no allowlist found, deny everything\nacl allowed_hosts dstdomain .invalid-no-allowlist\n'
+  fi
+  awk -v inc="$includes" '{gsub(/\{ALLOWLIST_INCLUDES\}/, inc); print}' "$TEMPLATE" > "$TMP"
+fi
+
+if [[ "$OUT" == "/etc/squid/squid.conf" ]]; then
+  sudo cp "$TMP" "$OUT"
+else
+  cp "$TMP" "$OUT"
+fi
+rm -f "$TMP"

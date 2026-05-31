@@ -1,0 +1,41 @@
+#!/bin/bash
+# cbox-refresh-pat — add/refresh the GitHub token on a *running* sandbox container, no restart.
+# Provisions the token into the claude-auth volume, re-runs the config sync, and reloads squid.
+#
+# Usage:
+#   cbox-refresh-pat            # use the host's `gh auth token`
+#   cbox-refresh-pat <path>     # use a PAT read from <path>
+set -euo pipefail
+
+CONTAINER="${CLAUDE_SANDBOX_CONTAINER:-claude-box}"
+
+# Resolve the token: explicit file arg wins, else fall back to the host's gh login.
+if [[ -n "${1:-}" ]]; then
+  [[ -s "$1" ]] || { echo "No token file at $1" >&2; exit 1; }
+  TOKEN="$(cat "$1")"
+elif command -v gh >/dev/null 2>&1 && gh auth token >/dev/null 2>&1; then
+  TOKEN="$(gh auth token)"
+else
+  echo "No token available: pass a PAT file path, or run 'gh auth login' on the host first." >&2
+  exit 1
+fi
+
+if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+  echo "$CONTAINER is not running. Start it with cbox, or run bootstrap.sh." >&2
+  exit 1
+fi
+
+echo "==> Provisioning token into $CONTAINER"
+printf '%s' "$TOKEN" | docker exec -i "$CONTAINER" bash -c 'cat > /home/claude/.claude-auth/github-pat'
+docker exec "$CONTAINER" chown claude:claude /home/claude/.claude-auth/github-pat
+docker exec "$CONTAINER" chmod 600 /home/claude/.claude-auth/github-pat
+
+echo "==> Re-syncing config with the token (no restart)"
+docker exec "$CONTAINER" agent-config-sync
+
+echo "==> Re-rendering + reloading squid"
+docker exec "$CONTAINER" render-squid-conf
+docker exec "$CONTAINER" sudo squid -k reconfigure
+
+echo "==> Done. gh auth status:"
+docker exec "$CONTAINER" gh auth status 2>&1 | sed 's/^/    /' || true

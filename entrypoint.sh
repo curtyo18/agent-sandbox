@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
 # entrypoint.sh — runs once at container start, then stays alive for `docker exec`.
-
+# Thin orchestrator: agent-config-sync and render-squid-conf hold the real logic (as standalone
+# scripts so cbox-refresh-pat can re-run them on a live container without re-triggering boot).
 set -uo pipefail
-
-CLAUDE_HOME="/home/claude"
-CONFIG_DIR="$CLAUDE_HOME/.claude"
-AUTH_DIR="$CLAUDE_HOME/.claude-auth"
-AUDIT_DIR="/audit"
-TODAY="$(date -u +%F)"
-AUDIT_FILE="$AUDIT_DIR/$TODAY.jsonl"
-
-log_event() {
-  local src="$1" action="$2" reason="${3:-}"
-  mkdir -p "$AUDIT_DIR"
-  printf '{"ts":"%s","src":"%s","action":"%s","reason":"%s"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$src" "$action" "$reason" >> "$AUDIT_FILE"
-}
+# shellcheck source=/dev/null
+. "${AGENT_LIB:-/usr/local/bin/agent-lib.sh}"
 
 # 1. Ensure audit dir + today's file exist.
 mkdir -p "$AUDIT_DIR" "$AUTH_DIR"
 touch "$AUDIT_FILE"
 
 CONTAINER_MODE="${CONTAINER_MODE:-default}"
-
 if [[ "$CONTAINER_MODE" == "research" ]]; then
   if [[ -z "${RESEARCH_REPO:-}" ]]; then
     echo "ERROR: CONTAINER_MODE=research requires RESEARCH_REPO env var." >&2
@@ -31,211 +19,12 @@ if [[ "$CONTAINER_MODE" == "research" ]]; then
   # Research containers run public-config only — disable any private overlay.
   unset AGENT_CONFIG_PRIVATE_REPO
 fi
+export CONTAINER_MODE
 
-# 2. Render squid config from template + global allowlist + any per-project allowlists.
-render_squid_conf() {
-  local out="/tmp/squid.conf"
-
-  # Research mode: open squid (full internet, still audited via access.log).
-  if [[ "$CONTAINER_MODE" == "research" ]]; then
-    awk '{gsub(/\{ALLOWLIST_INCLUDES\}/, "\n# research mode: open access\nhttp_access allow all\n"); print}' \
-      /etc/squid/squid.conf.template > "$out"
-    sed -i '/^http_access allow allowed_hosts/d' "$out"
-    sed -i '/^http_access deny all/d' "$out"
-    sudo cp "$out" /etc/squid/squid.conf
-    return 0
-  fi
-
-  local includes=""
-
-  # Global allowlist from agent-config.
-  if [[ -f "$CONFIG_DIR/network-allowlist.conf" ]]; then
-    includes+=$'\n# from agent-config/network-allowlist.conf\n'
-    includes+=$(cat "$CONFIG_DIR/network-allowlist.conf")
-  fi
-
-  # Per-project allowlists (any file matching /projects/*/.claude-allowlist.conf).
-  for plf in /projects/*/.claude-allowlist.conf; do
-    [[ -f "$plf" ]] || continue
-    includes+=$'\n# from '"$plf"$'\n'
-    includes+=$(cat "$plf")
-  done
-
-  # If no allowlist was found (e.g. agent-config clone failed), write a tombstone ACL
-  # so squid still parses cleanly. Effectively denies all egress until allowlist arrives.
-  if [[ -z "$includes" ]]; then
-    includes=$'\n# fallback: no allowlist found, deny everything\nacl allowed_hosts dstdomain .invalid-no-allowlist\n'
-  fi
-
-  # Substitute placeholder.
-  awk -v inc="$includes" '{gsub(/\{ALLOWLIST_INCLUDES\}/, inc); print}' \
-    /etc/squid/squid.conf.template > "$out"
-  sudo cp "$out" /etc/squid/squid.conf
-}
-
-# 3. Clone or pull agent-config.
-# Bypass the in-container proxy for these git ops — squid isn't running yet (chicken-and-egg:
-# render_squid_conf needs network-allowlist.conf which lives in agent-config which needs this clone).
-# github.com would be on the allowlist anyway, so direct egress here matches policy.
-sync_config() {
-  local pat="$(cat "$AUTH_DIR/github-pat" 2>/dev/null || true)"
-  local AGENT_CONFIG_REPO="${AGENT_CONFIG_REPO:-https://github.com/curtyo18/agent-config.git}"
-
-  if [[ -z "$pat" ]]; then
-    log_event "entrypoint" "config-sync-skipped" "no-pat"
-    echo "WARN: no GitHub PAT at $AUTH_DIR/github-pat; using cached config (if any)." >&2
-    return 0
-  fi
-
-  # Authenticate gh and register it as the git credential helper BEFORE any git operation,
-  # so the PAT is never embedded in a remote URL (would otherwise persist in .git/config).
-  if ! gh auth status >/dev/null 2>&1; then
-    HTTPS_PROXY="" HTTP_PROXY="" gh auth login --hostname github.com --git-protocol https --with-token <"$AUTH_DIR/github-pat" 2>/dev/null || true
-  fi
-  gh auth setup-git 2>/dev/null || true
-
-  # Migration: if an older entrypoint left a URL with embedded credentials, scrub it.
-  if [[ -d "$CONFIG_DIR/.git" ]]; then
-    local current_url
-    current_url="$(git -C "$CONFIG_DIR" remote get-url origin 2>/dev/null || true)"
-    if [[ "$current_url" == *"@github.com/"* ]]; then
-      git -C "$CONFIG_DIR" remote set-url origin "$AGENT_CONFIG_REPO"
-      log_event "entrypoint" "config-remote-url-scrubbed" ""
-    fi
-  fi
-
-  if [[ -d "$CONFIG_DIR/.git" ]]; then
-    cd "$CONFIG_DIR"
-    if ! HTTPS_PROXY="" HTTP_PROXY="" git pull --ff-only 2>>/tmp/git-pull.err; then
-      log_event "entrypoint" "config-pull-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
-      echo "WARN: git pull failed; hard-resyncing to remote default branch." >&2
-      # Self-heal: a default-branch rename or diverged history wedges --ff-only and would
-      # otherwise leave the container on stale cached config forever (a silent failure).
-      # Discover the remote's current default branch, fetch it, and hard-reset onto it.
-      # Untracked runtime data (projects/, plugins/) survives reset --hard / checkout -f.
-      def_branch="$(HTTPS_PROXY="" HTTP_PROXY="" git ls-remote --symref origin HEAD 2>/dev/null | sed -n 's#^ref:[[:space:]]*refs/heads/\([^[:space:]]*\).*#\1#p')"
-      def_branch="${def_branch:-master}"
-      if HTTPS_PROXY="" HTTP_PROXY="" git fetch --depth=1 origin "$def_branch" 2>>/tmp/git-pull.err \
-         && git checkout -f -B "$def_branch" FETCH_HEAD 2>>/tmp/git-pull.err; then
-        git branch --set-upstream-to="origin/$def_branch" "$def_branch" 2>/dev/null || true
-        log_event "entrypoint" "config-resynced" "$def_branch"
-        echo "Config hard-resynced to origin/$def_branch." >&2
-      else
-        log_event "entrypoint" "config-resync-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
-        echo "WARN: resync failed; using last-good cache." >&2
-      fi
-    fi
-  else
-    if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 \
-      "$AGENT_CONFIG_REPO" \
-      "$CONFIG_DIR" 2>>/tmp/git-clone.err
-    then
-      log_event "entrypoint" "config-clone-failed" "$(tail -1 /tmp/git-clone.err 2>/dev/null)"
-      echo "FATAL: initial config clone failed; container will run without skills/hooks." >&2
-    fi
-  fi
-
-  # Ensure all hooks are executable — including extensionless dispatchers like `pre-commit`
-  # (git silently skips a hook that lacks the +x bit, e.g. when a copy dropped the mode).
-  find "$CONFIG_DIR/hooks" -type f -exec chmod +rx {} \; 2>/dev/null || true
-
-  # Wire git: hooksPath for pre-commit, identity for commits (idempotent).
-  git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
-  git config --global user.email "${GIT_USER_EMAIL:?GIT_USER_EMAIL must be set}"
-  git config --global user.name "${GIT_USER_NAME:?GIT_USER_NAME must be set}"
-
-  # Bash function that wraps `claude` with --dangerously-skip-permissions.
-  # Container guard rails (squid, gh wrapper, secret-scan) are the safety net.
-  # Function (not alias) so all args after `claude ...` pass through verbatim via "$@".
-  local bashrc="$CLAUDE_HOME/.bashrc"
-  if ! grep -q 'claude --dangerously-skip-permissions' "$bashrc" 2>/dev/null; then
-    cat >> "$bashrc" <<'EOF'
-
-# Auto-add --dangerously-skip-permissions to interactive `claude` invocations.
-# Sandbox guard rails (squid allowlist, gh wrapper, secret-scan) are the safety net.
-claude() {
-  command claude --dangerously-skip-permissions "$@"
-}
-EOF
-  fi
-
-  # Mark first-run onboarding as complete in /home/claude/.claude.json AND pre-seed
-  # workspace trust for every existing subdirectory of /projects. claude has no global
-  # "trust all" setting, only per-absolute-path. The file lives outside the
-  # claude-cfg-cache volume so it doesn't persist — re-seed on every container start.
-  # See: https://github.com/anthropics/claude-code/issues/4714
-  python3 -c "
-import json, os
-p = '$CLAUDE_HOME/.claude.json'
-d = {}
-if os.path.exists(p):
-    try: d = json.load(open(p))
-    except: d = {}
-d['hasCompletedOnboarding'] = True
-projects = d.setdefault('projects', {})
-if os.path.isdir('/projects'):
-    for entry in os.listdir('/projects'):
-        if entry.startswith('.'):
-            continue
-        full = os.path.join('/projects', entry)
-        if os.path.isdir(full):
-            projects.setdefault(full, {})['hasTrustDialogAccepted'] = True
-# Trust /projects itself and the launcher's working dir too — the mobile launcher runs claude
-# there, and without this it blocks forever on the unattended 'trust this folder?' prompt
-# (--dangerously-skip-permissions does NOT cover the trust dialog; only this seeding does).
-for extra in ('/projects', os.environ.get('LAUNCHER_PROJECT', '/projects')):
-    if extra and os.path.isdir(extra):
-        projects.setdefault(extra, {})['hasTrustDialogAccepted'] = True
-json.dump(d, open(p, 'w'), indent=2)
-" 2>/dev/null || true
-
-  # Private overlay: rsync personal config on top of public base. Optional.
-  if [ -n "${AGENT_CONFIG_PRIVATE_REPO:-}" ]; then
-    echo "Applying private config overlay..."
-    if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$AGENT_CONFIG_PRIVATE_REPO" /tmp/private-overlay 2>>/tmp/git-clone-overlay.err; then
-      echo "WARN: private overlay clone failed; continuing with public config only." >&2
-      log_event "entrypoint" "overlay-clone-failed" "$(tail -1 /tmp/git-clone-overlay.err 2>/dev/null)"
-    else
-      rsync -a --exclude='.git' /tmp/private-overlay/ "$CONFIG_DIR/"
-      rm -rf /tmp/private-overlay
-      echo "Private overlay applied."
-      log_event "entrypoint" "overlay-applied" ""
-    fi
-  fi
-
-  # Install enabledPlugins from settings.json (idempotent: skip if already installed).
-  if [[ -f "$CONFIG_DIR/settings.json" ]]; then
-    local plugins
-    plugins=$(python3 -c "import json; d=json.load(open('$CONFIG_DIR/settings.json')); print(' '.join((d.get('enabledPlugins') or {}).keys()))" 2>/dev/null || true)
-    local installed
-    installed=$(claude plugin list 2>/dev/null | awk 'NR>1 {print $1}' || true)
-    for p in $plugins; do
-      if ! echo "$installed" | grep -qF "$p"; then
-        echo "==> Installing plugin: $p"
-        claude plugin install "$p" || echo "WARN: plugin install $p failed"
-      fi
-    done
-  fi
-
-  # Research mode: clone the research repo into /projects/research.
-  if [[ "$CONTAINER_MODE" == "research" ]]; then
-    if [[ ! -d /projects/research/.git ]]; then
-      HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$RESEARCH_REPO" /projects/research \
-        2>>/tmp/git-clone-research.err || \
-        echo "WARN: research repo clone failed; continuing." >&2
-    else
-      cd /projects/research && HTTPS_PROXY="" HTTP_PROXY="" git pull --ff-only || true
-    fi
-  fi
-}
-
-# 4. Start squid (after render_squid_conf).
 start_squid() {
-  # Clean up a stale PID file left behind by a previous abrupt shutdown
-  # (tini -g process-group kill doesn't give squid time to remove it).
+  # Clean up a stale PID file left behind by a previous abrupt shutdown.
   sudo rm -f /run/squid.pid
   sudo squid -N -f /etc/squid/squid.conf &
-  # Tail access.log into audit (best-effort; squid format).
   sudo bash -c 'tail -F /var/log/squid/access.log 2>/dev/null | while read -r line; do
     ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     host="$(echo "$line" | awk "{print \$7}")"
@@ -245,21 +34,19 @@ start_squid() {
   done' &
 }
 
-# 5. Start the session launcher (tiny HTTP server on :8088).
 start_launcher() {
   if ! pgrep -f session-launcher.py >/dev/null 2>&1; then
-    nohup python3 /usr/local/bin/session-launcher.py \
-      >>/tmp/session-launcher.log 2>&1 &
+    nohup python3 /usr/local/bin/session-launcher.py >>/tmp/session-launcher.log 2>&1 &
     log_event "entrypoint" "launcher-started" ""
   fi
 }
 
 # === Run sequence ===
-sync_config
-render_squid_conf
+/usr/local/bin/agent-config-sync || true
+/usr/local/bin/render-squid-conf || true
 start_squid
 start_launcher
 log_event "entrypoint" "ready" ""
 
-# 5. Stay alive forever.
+# Stay alive forever.
 exec sleep infinity

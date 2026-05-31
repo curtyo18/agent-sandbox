@@ -54,6 +54,9 @@ COPY entrypoint.sh                        /usr/local/bin/entrypoint.sh
 COPY scripts/clip                         /usr/local/bin/clip
 COPY scripts/paste                        /usr/local/bin/paste
 COPY scripts/session-launcher.py         /usr/local/bin/session-launcher.py
+COPY scripts/agent-lib.sh                 /usr/local/bin/agent-lib.sh
+COPY scripts/agent-config-sync            /usr/local/bin/agent-config-sync
+COPY scripts/render-squid-conf            /usr/local/bin/render-squid-conf
 RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/git \
                /usr/local/bin/git-audit-wrapper \
@@ -61,9 +64,12 @@ RUN chmod 0755 /usr/local/bin/gh \
                /usr/local/bin/entrypoint.sh \
                /usr/local/bin/clip \
                /usr/local/bin/session-launcher.py \
+               /usr/local/bin/agent-config-sync \
+               /usr/local/bin/render-squid-conf \
                /usr/local/bin/rm \
                /usr/local/bin/rmdir \
-               /usr/local/bin/paste
+               /usr/local/bin/paste && \
+    chmod 0644 /usr/local/bin/agent-lib.sh
 
 # Environment: timezone, proxy for all HTTPS-aware tools.
 ARG TZ=Europe/London

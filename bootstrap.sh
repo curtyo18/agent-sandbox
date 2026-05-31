@@ -68,9 +68,13 @@ if [[ ! -s "$PAT_FILE" ]]; then
     gh auth token > "$PAT_FILE"
     chmod 600 "$PAT_FILE"
   else
-    echo "No token at $PAT_FILE and no usable host 'gh' login."
-    echo "Either run 'gh auth login' on the host, or save a PAT (repo scope) to that path; then re-run."
-    echo "Without it the container starts but skips config-clone, git identity, and the claude wrapper."
+    echo "==> No GitHub token found (no $PAT_FILE, no host 'gh' login)."
+    echo "    The container will still start as a working tokenless session: public config,"
+    echo "    skills/hooks, identity, the claude wrapper, and network egress all work."
+    echo "    Private clone/push and the private overlay stay off until you add a token."
+    echo "    Add one any time WITHOUT a rebuild or restart:"
+    echo "        cbox-refresh-pat            # uses your host 'gh auth token'"
+    echo "        cbox-refresh-pat <path>     # a PAT file (repo scope)"
   fi
 fi
 
@@ -138,6 +142,7 @@ fi
 
 echo "==> Installing cbox helper to /usr/local/bin"
 sudo ln -sf "$REPO_DIR/scripts/cbox" /usr/local/bin/cbox
+sudo ln -sf "$REPO_DIR/scripts/cbox-refresh-pat" /usr/local/bin/cbox-refresh-pat
 
 echo "==> Installing clip-watcher as systemd service"
 sudo ln -sf "$REPO_DIR/scripts/clip-watcher" /usr/local/bin/claude-clip-watcher

@@ -68,6 +68,7 @@ cbox              # bash shell in /projects
 cbox <repo>       # bash shell in /projects/<repo>
 cbox -c           # claude in /projects
 cbox -c <repo>    # claude in /projects/<repo>
+cbox-refresh-pat  # add/refresh the GitHub token on the running container (no restart)
 ```
 
 If you cloned somewhere other than `~/projects/agent-sandbox`, set `REPO_DIR` and
@@ -102,26 +103,39 @@ from `~/.agent-sandbox/github-pat`.
 PATs need at least *Contents: read/write* and *Pull requests: read/write* on the repos you'll
 touch.) The `gh` wrapper blocks destructive operations regardless of scope.
 
-**Without a token** the container still starts, but the startup config step bails early — so
-you get **no config clone (skills/hooks), no git commit identity, and no `claude`
-permission-bypass wrapper**. It's a bare container until you add one and restart. The token is
-stored on the persistent `claude-auth` volume (chmod 600), never baked into the image.
+**Without a token** the container is still a fully working session — public config, skills,
+hooks, git identity, the `claude()` wrapper, and network egress all come up. Only the
+token-gated extras are off: private clones, `git push`, `gh pr create`, and the private overlay.
+Add a token whenever you like, **without a rebuild or restart**:
+
+```bash
+cbox-refresh-pat            # reuse your host `gh auth token`
+cbox-refresh-pat <path>     # a PAT file (repo scope)
+```
+
+(If you point `AGENT_CONFIG_REPO` at a *private* fork, that clone does need a token — the
+tokenless guarantee is for the public default. And because the container's env is fixed at
+`docker run`, *adding* a private overlay later needs a restart with `AGENT_CONFIG_PRIVATE_REPO`
+set; a token refresh covers auth and push for the repos already configured.) The token lives on
+the persistent `claude-auth` volume (chmod 600), never baked into the image.
 
 ## How it boots
 
-When `bootstrap.sh` starts the container, `entrypoint.sh` runs once: it authenticates with
-your GitHub token, clones (or updates) `agent-config` into the persistent `~/.claude` volume —
-rsyncing the optional private overlay on top — then renders `squid.conf` from your allowlist
-and starts squid. After that it idles, ready for `cbox` / `docker exec`.
+When `bootstrap.sh` starts the container, `entrypoint.sh` runs once: it calls `agent-config-sync`,
+which clones (or updates) the *public* `agent-config` into the persistent `~/.claude` volume,
+wires git identity + the `claude()` wrapper, and seeds workspace trust — all with **no token
+needed**. A GitHub token only adds `gh` auth, the private overlay, and authenticated push. It
+then renders `squid.conf` from the allowlist and starts squid, and idles, ready for `cbox` /
+`docker exec`.
 
 ```mermaid
 flowchart TD
-    E["entrypoint.sh<br/>(once, at container start)"] --> SC["sync_config"]
-    PAT[("claude-auth volume:<br/>GitHub PAT")] -.->|authenticates| SC
-    SC -->|clone / pull| AC["agent-config (public)"]
-    OV["agent-config-private<br/>(optional overlay)"] -.->|rsync on top| SC
+    E["entrypoint.sh<br/>(once, at container start)"] --> SC["agent-config-sync"]
+    SC -->|"clone / pull (no token needed)"| AC["agent-config (public)"]
     SC --> CFG[("~/.claude<br/>cfg-cache volume")]
-    E --> RS["render squid.conf<br/>from allowlist"]
+    PAT[("claude-auth volume:<br/>GitHub token (optional)")] -.->|"unlocks gh auth + overlay + push"| SC
+    OV["agent-config-private<br/>(optional overlay)"] -.->|"rsync on top, if token"| SC
+    E --> RS["render-squid-conf<br/>from allowlist"]
     RS --> SQ["start squid"]
     SQ --> RDY(["ready — docker exec / cbox"])
 ```
@@ -208,8 +222,9 @@ docker exec -it claude-sandbox bash -lc 'claude login'
 docker exec -it claude-sandbox bash -lc 'cd /projects && claude --dangerously-skip-permissions'
 ```
 
-Without a token the container still starts, but the startup config step bails early — no
-config clone, no git identity, no `claude` bypass wrapper (see [GitHub access](#github-access)).
+Without a token the container still comes up as a working tokenless session (public config,
+identity, wrapper, egress); only private clone/push and the overlay wait for a token (add one
+later with `cbox-refresh-pat`).
 
 ## Network allowlist
 

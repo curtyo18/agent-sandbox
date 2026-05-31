@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# agent-config-sync — clone/update agent-config and wire git + claude config.
+# Idempotent: run at container start (entrypoint) and on demand (cbox-refresh-pat) to pick up a
+# newly-added token. Token-free steps always run; a GitHub PAT only unlocks gh auth, the private
+# overlay, and authenticated push. Always exits 0 — failures are logged, never abort the caller.
+set -uo pipefail
+# shellcheck source=/dev/null
+. "${AGENT_LIB:-/usr/local/bin/agent-lib.sh}"
+
+pat="$(cat "$AUTH_DIR/github-pat" 2>/dev/null || true)"
+AGENT_CONFIG_REPO="${AGENT_CONFIG_REPO:-https://github.com/curtyo18/agent-config.git}"
+
+# ── Token-gated: authenticate gh + register it as git's credential helper. Done BEFORE the clone
+# so a private AGENT_CONFIG_REPO is reachable; the public default clones fine without it. Creds
+# live in the helper, never embedded in a remote URL.
+if [[ -n "$pat" ]]; then
+  if ! gh auth status >/dev/null 2>&1; then
+    HTTPS_PROXY="" HTTP_PROXY="" gh auth login --hostname github.com --git-protocol https --with-token <"$AUTH_DIR/github-pat" 2>/dev/null || true
+  fi
+  gh auth setup-git 2>/dev/null || true
+else
+  log_event "agent-config-sync" "tokenless" "no-pat"
+  echo "agent-config-sync: no GitHub token — running tokenless (public config only; private clone/push disabled)." >&2
+  echo "  Add a token any time, no restart:  cbox-refresh-pat          (uses your host 'gh auth token')" >&2
+  echo "                                 or:  cbox-refresh-pat <path>  (a PAT file)" >&2
+fi
+
+# ── Always: scrub any legacy credential-in-URL remote (hygiene; unauth clones are already clean).
+if [[ -d "$CONFIG_DIR/.git" ]]; then
+  current_url="$(git -C "$CONFIG_DIR" remote get-url origin 2>/dev/null || true)"
+  if [[ "$current_url" == *"@github.com/"* ]]; then
+    git -C "$CONFIG_DIR" remote set-url origin "$AGENT_CONFIG_REPO"
+    log_event "agent-config-sync" "config-remote-url-scrubbed" ""
+  fi
+fi
+
+# ── Always: clone (if absent) or pull (with self-heal). Proxy bypassed — squid may be down at
+# boot, and github.com is allowlisted anyway, so direct egress matches policy.
+if [[ -d "$CONFIG_DIR/.git" ]]; then
+  if ! HTTPS_PROXY="" HTTP_PROXY="" git -C "$CONFIG_DIR" pull --ff-only 2>>/tmp/git-pull.err; then
+    log_event "agent-config-sync" "config-pull-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
+    echo "WARN: git pull failed; hard-resyncing to remote default branch." >&2
+    def_branch="$(HTTPS_PROXY="" HTTP_PROXY="" git -C "$CONFIG_DIR" ls-remote --symref origin HEAD 2>/dev/null | sed -n 's#^ref:[[:space:]]*refs/heads/\([^[:space:]]*\).*#\1#p')"
+    def_branch="${def_branch:-master}"
+    if HTTPS_PROXY="" HTTP_PROXY="" git -C "$CONFIG_DIR" fetch --depth=1 origin "$def_branch" 2>>/tmp/git-pull.err \
+       && git -C "$CONFIG_DIR" checkout -f -B "$def_branch" FETCH_HEAD 2>>/tmp/git-pull.err; then
+      git -C "$CONFIG_DIR" branch --set-upstream-to="origin/$def_branch" "$def_branch" 2>/dev/null || true
+      log_event "agent-config-sync" "config-resynced" "$def_branch"
+    else
+      log_event "agent-config-sync" "config-resync-failed" "$(tail -1 /tmp/git-pull.err 2>/dev/null)"
+      echo "WARN: resync failed; using last-good cache." >&2
+    fi
+  fi
+else
+  if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$AGENT_CONFIG_REPO" "$CONFIG_DIR" 2>>/tmp/git-clone.err; then
+    log_event "agent-config-sync" "config-clone-failed" "$(tail -1 /tmp/git-clone.err 2>/dev/null)"
+    echo "WARN: config clone failed; running without skills/hooks until config is reachable." >&2
+  fi
+fi
+
+# ── Always: hooks executable + hooksPath.
+find "$CONFIG_DIR/hooks" -type f -exec chmod +rx {} \; 2>/dev/null || true
+git config --global core.hooksPath "$CONFIG_DIR/hooks" 2>/dev/null || true
+
+# ── Always: git commit identity. Warn-and-skip if unset — the container still boots; commits
+# prompt until identity is set. (bootstrap.sh resolves identity for the blessed path.)
+if [[ -n "${GIT_USER_EMAIL:-}" && -n "${GIT_USER_NAME:-}" ]]; then
+  git config --global user.email "$GIT_USER_EMAIL"
+  git config --global user.name "$GIT_USER_NAME"
+else
+  log_event "agent-config-sync" "identity-missing" "${GIT_USER_NAME:-}<${GIT_USER_EMAIL:-}>"
+  echo "WARN: GIT_USER_EMAIL / GIT_USER_NAME unset — commits disabled until set (git config --global user.*)." >&2
+fi
+
+# ── Always: wrap claude with --dangerously-skip-permissions (grep-guarded; idempotent).
+bashrc="$CLAUDE_HOME/.bashrc"
+if ! grep -q 'claude --dangerously-skip-permissions' "$bashrc" 2>/dev/null; then
+  cat >> "$bashrc" <<'EOF'
+
+# Auto-add --dangerously-skip-permissions to interactive `claude` invocations.
+# Sandbox guard rails (squid allowlist, gh wrapper, secret-scan) are the safety net.
+claude() {
+  command claude --dangerously-skip-permissions "$@"
+}
+EOF
+fi
+
+# ── Always: complete onboarding + seed workspace trust for /projects and its subdirs.
+python3 -c "
+import json, os
+p = '$CLAUDE_HOME/.claude.json'
+d = {}
+if os.path.exists(p):
+    try: d = json.load(open(p))
+    except: d = {}
+d['hasCompletedOnboarding'] = True
+projects = d.setdefault('projects', {})
+if os.path.isdir('/projects'):
+    for entry in os.listdir('/projects'):
+        if entry.startswith('.'):
+            continue
+        full = os.path.join('/projects', entry)
+        if os.path.isdir(full):
+            projects.setdefault(full, {})['hasTrustDialogAccepted'] = True
+for extra in ('/projects', os.environ.get('LAUNCHER_PROJECT', '/projects')):
+    if extra and os.path.isdir(extra):
+        projects.setdefault(extra, {})['hasTrustDialogAccepted'] = True
+json.dump(d, open(p, 'w'), indent=2)
+" 2>/dev/null || true
+
+# ── Token-gated: private overlay, rsynced over the public base (private wins on clash). ──
+if [[ -n "$pat" && -n "${AGENT_CONFIG_PRIVATE_REPO:-}" ]]; then
+  echo "Applying private config overlay..." >&2
+  if ! HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$AGENT_CONFIG_PRIVATE_REPO" /tmp/private-overlay 2>>/tmp/git-clone-overlay.err; then
+    echo "WARN: private overlay clone failed; continuing with public config only." >&2
+    log_event "agent-config-sync" "overlay-clone-failed" "$(tail -1 /tmp/git-clone-overlay.err 2>/dev/null)"
+  else
+    rsync -a --exclude='.git' /tmp/private-overlay/ "$CONFIG_DIR/"
+    rm -rf /tmp/private-overlay
+    log_event "agent-config-sync" "overlay-applied" ""
+  fi
+fi
+
+# ── Always: install enabledPlugins from settings.json (idempotent; runs after overlay so it
+# sees overlay-contributed plugins; skips already-installed). ──
+if [[ -f "$CONFIG_DIR/settings.json" ]]; then
+  plugins=$(python3 -c "import json; d=json.load(open('$CONFIG_DIR/settings.json')); print(' '.join((d.get('enabledPlugins') or {}).keys()))" 2>/dev/null || true)
+  installed=$(claude plugin list 2>/dev/null | awk 'NR>1 {print $1}' || true)
+  for p in $plugins; do
+    if ! echo "$installed" | grep -qF "$p"; then
+      echo "==> Installing plugin: $p" >&2
+      claude plugin install "$p" 2>/dev/null || echo "WARN: plugin install $p failed" >&2
+    fi
+  done
+fi
+
+# ── Research mode: clone/update the research repo (token-gated iff the repo is private). ──
+if [[ "${CONTAINER_MODE:-default}" == "research" && -n "${RESEARCH_REPO:-}" ]]; then
+  if [[ ! -d /projects/research/.git ]]; then
+    HTTPS_PROXY="" HTTP_PROXY="" git clone --depth=1 "$RESEARCH_REPO" /projects/research 2>>/tmp/git-clone-research.err || \
+      echo "WARN: research repo clone failed; continuing." >&2
+  else
+    HTTPS_PROXY="" HTTP_PROXY="" git -C /projects/research pull --ff-only 2>/dev/null || true
+  fi
+fi
+
+exit 0

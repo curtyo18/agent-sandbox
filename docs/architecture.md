@@ -41,6 +41,16 @@ Originally scoped: a fine-grained PAT with read-only access to one private repo.
 
 **When to revisit:** if the gh wrapper ever turns out to be bypassable (someone calls the GitHub API via `curl` directly), the scoped-PAT defense is worth bringing back.
 
+### Tokenless degrades gracefully, it doesn't brick
+
+The config sync (`agent-config-sync`) splits cleanly: cloning the *public* `agent-config`,
+wiring git identity, the `claude()` wrapper, trust-seeding, and rendering the squid allowlist
+all run with **no token**. A GitHub token only unlocks `gh` auth, the private overlay, and
+authenticated push. So a tokenless container is a real working session rather than a
+network-dead shell, and `cbox-refresh-pat` adds a token to a running container — re-running the
+same sync and reloading squid — without a restart. (The sync logic lives in standalone scripts
+precisely so the boot path and the refresh path are the same code.)
+
 ## Bind-mount all of `/projects`, not per-repo
 
 The container sees the host's entire workspace as `/projects`. Could have mounted per-repo on demand instead.
