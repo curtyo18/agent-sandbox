@@ -31,15 +31,18 @@ flowchart LR
 `bootstrap.sh` on the WSL2 host builds the image and runs one long-lived container; you work
 inside it with `cbox`. Config is cloned from `agent-config` at startup, egress is HTTPS-only
 through an allowlist, and a layer of guard rails (command wrappers, secret-scan, audit log)
-wraps everything the agent does. The startup sequence is below; the *why* behind each choice
+wraps everything the agent does. It's GitHub-first but not GitHub-only — any HTTPS git host
+(GitLab, Bitbucket, Gitea, self-hosted) works for clone/commit/push; see [Using other git
+hosts](#using-other-git-hosts). The startup sequence is below; the *why* behind each choice
 is in [docs/architecture.md](docs/architecture.md).
 
 ## Requirements
 
 - Docker, on WSL2 (Ubuntu) — the blessed path. Plain Linux works too; see
   [Running without WSL](#running-without-wsl-what-bootstrap-automates).
-- GitHub access for the container — either `gh` logged in on the host, or a Personal Access
-  Token with `repo` scope. See [GitHub access](#github-access).
+- GitHub access — **optional**. Without it the container still comes up as a working tokenless
+  session; add `gh` on the host or a PAT with `repo` scope for private clones and `git push`.
+  See [GitHub access](#github-access).
 
 ## Quick start (WSL2)
 
@@ -135,7 +138,8 @@ container's git operations aren't GitHub-specific. To use another host:
    e.g. `acl allowed_hosts dstdomain .your-host.com`, then restart.
 2. **Add a credential.** Put one line per host in `~/.agent-sandbox/git-credentials` (chmod 600);
    bootstrap provisions it and the container serves it via git's credential store — this runs
-   alongside your GitHub `gh` login (separate helpers), so it never disturbs GitHub access. The
+   alongside your GitHub `gh` login (separate helpers), so it never disturbs GitHub access. (The
+   `bootstrap.sh --init` wizard sets up GitHub auth only; other hosts are configured here.) The
    username prefix differs by provider:
 
    | Host | `~/.agent-sandbox/git-credentials` line | Open a PR/MR |
