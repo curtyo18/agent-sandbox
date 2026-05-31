@@ -43,25 +43,24 @@ is in [docs/architecture.md](docs/architecture.md).
 
 ## Quick start (WSL2)
 
-**Fastest path:** `bash bootstrap.sh --init` detects your `gh` login, asks for your git
-identity and projects dir, writes `~/.agent-sandbox/.env`, then builds. The manual steps below
-are the equivalent if you'd rather set everything yourself.
+`bash bootstrap.sh --init` is the guided path: it detects your `gh` login, asks how you want
+GitHub access (use it / skip for a tokenless session / point at a PAT file), confirms your git
+identity and projects directory, writes `~/.agent-sandbox/.env`, then builds and runs. It also
+records where you cloned, so there's nothing to set by hand.
 
 ```bash
-# 1. Clone under your projects directory (the path defaults assume ~/projects).
+# 1. Clone anywhere — --init records the path for you.
 git clone https://github.com/curtyo18/agent-sandbox.git ~/projects/agent-sandbox
 cd ~/projects/agent-sandbox
 
-# 2. Give the container GitHub access: `gh auth login` to act as you (easiest), or drop a
-#    PAT at ~/.agent-sandbox/github-pat — e.g. for a dedicated agent account. See "GitHub access".
-gh auth login        # skip if you're already logged in
+# 2. (Optional) log in to GitHub to act as yourself. Skip it to start tokenless and add a
+#    token later, or to point --init at a PAT file instead — it offers both. See "GitHub access".
+gh auth login
 
-# 3. Build + run. Git identity is auto-detected from your host git config / gh account
-#    (export GIT_USER_EMAIL / GIT_USER_NAME only to override).
-bash bootstrap.sh
+# 3. Guided setup + build. Answer the prompts; it writes ~/.agent-sandbox/.env, then runs.
+bash bootstrap.sh --init
 
-# 4. First run only: sign in to Claude itself — the Anthropic login, separate
-#    from the GitHub access in step 2.
+# 4. First run only: sign in to Claude itself — the Anthropic login, separate from GitHub.
 docker exec -it claude-box bash -lc 'claude login'
 ```
 
@@ -75,8 +74,11 @@ cbox -c <repo>    # claude in /projects/<repo>
 cbox-refresh-pat  # add/refresh the GitHub token on the running container (no restart)
 ```
 
-If you cloned somewhere other than `~/projects/agent-sandbox`, set `REPO_DIR` and
-`PROJECTS_HOST_PATH` to match (see [Configuration](#configuration)).
+**Prefer to configure by hand?** Skip `--init` and run `bash bootstrap.sh` directly: git
+identity is auto-detected from your host `git config` / `gh` account (export `GIT_USER_EMAIL` /
+`GIT_USER_NAME` to override), and everything else comes from `~/.agent-sandbox/.env` or exported
+env vars (see [Configuration](#configuration)). If you cloned outside `~/projects/agent-sandbox`,
+set `REPO_DIR` and `PROJECTS_HOST_PATH` to match.
 
 ## GitHub access
 
