@@ -11,7 +11,7 @@ fail() { echo "  FAIL: $1"; exit 1; }
 run_case() {  # $1 = "withpat" | "nopat"
   local mode="$1"
   local T; T=$(mktemp -d)
-  mkdir -p "$T/bin" "$T/home" "$T/auth" "$T/audit" "$T/config"
+  mkdir -p "$T/bin" "$T/home" "$T/auth" "$T/audit" "$T/config" "$T/projects"
   # Stub git + gh: record args, never touch the network.
   cat > "$T/bin/git" <<EOSTUB
 #!/usr/bin/env bash
@@ -26,8 +26,11 @@ exit 0
 EOSTUB
   chmod +x "$T/bin/git" "$T/bin/gh"
   [[ "$mode" == "withpat" ]] && printf 'ghp_faketoken' > "$T/auth/github-pat"
+  # Seed trust against a test-owned dir: the script keys trust off /projects and $LAUNCHER_PROJECT,
+  # and /projects only exists inside the container — so on a bare host we point LAUNCHER_PROJECT here.
   PATH="$T/bin:$PATH" \
     CLAUDE_HOME="$T/home" CONFIG_DIR="$T/config" AUTH_DIR="$T/auth" AUDIT_DIR="$T/audit" \
+    LAUNCHER_PROJECT="$T/projects" \
     GIT_USER_EMAIL="t@e.st" GIT_USER_NAME="Tester" \
     bash "$SCRIPT" >/dev/null 2>&1
   echo "$T"
