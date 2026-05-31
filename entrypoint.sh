@@ -180,6 +180,12 @@ if os.path.isdir('/projects'):
         full = os.path.join('/projects', entry)
         if os.path.isdir(full):
             projects.setdefault(full, {})['hasTrustDialogAccepted'] = True
+# Trust /projects itself and the launcher's working dir too — the mobile launcher runs claude
+# there, and without this it blocks forever on the unattended 'trust this folder?' prompt
+# (--dangerously-skip-permissions does NOT cover the trust dialog; only this seeding does).
+for extra in ('/projects', os.environ.get('LAUNCHER_PROJECT', '/projects')):
+    if extra and os.path.isdir(extra):
+        projects.setdefault(extra, {})['hasTrustDialogAccepted'] = True
 json.dump(d, open(p, 'w'), indent=2)
 " 2>/dev/null || true
 
