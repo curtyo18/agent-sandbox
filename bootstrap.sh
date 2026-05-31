@@ -218,6 +218,10 @@ sudo ln -sf "$REPO_DIR/scripts/cbox-refresh-pat" /usr/local/bin/cbox-refresh-pat
 echo "==> Installing clip-watcher as systemd service"
 sudo ln -sf "$REPO_DIR/scripts/clip-watcher" /usr/local/bin/claude-clip-watcher
 sudo cp "$REPO_DIR/scripts/claude-clip-watcher.service" /etc/systemd/system/claude-clip-watcher.service
+# Pin the host clipboard dir (must match the /projects bind) via a drop-in; keeps the unit generic.
+sudo mkdir -p /etc/systemd/system/claude-clip-watcher.service.d
+printf '[Service]\nEnvironment=CLAUDE_CLIPBOARD_DIR=%s/.claude-clipboard\n' "$PROJECTS_HOST_PATH" \
+  | sudo tee /etc/systemd/system/claude-clip-watcher.service.d/clipboard-dir.conf >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now claude-clip-watcher.service
 sudo systemctl restart claude-clip-watcher.service

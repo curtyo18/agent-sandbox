@@ -8,7 +8,10 @@
 # Run as a systemd service (see claude-clip-watcher.service).
 
 set -u
-DIR="/mnt/e/Projects/.claude-clipboard"
+# Host dir backing the container's /projects bind. bootstrap pins this via a systemd drop-in
+# (Environment=CLAUDE_CLIPBOARD_DIR=$PROJECTS_HOST_PATH/.claude-clipboard); the default covers
+# a manual run with the default projects location.
+DIR="${CLAUDE_CLIPBOARD_DIR:-$HOME/projects/.claude-clipboard}"
 CLIP_EXE="/mnt/c/Windows/System32/clip.exe"
 POWERSHELL="/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
 LOG="/tmp/claude-clip-watcher.log"
