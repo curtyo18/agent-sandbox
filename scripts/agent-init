@@ -76,3 +76,42 @@ case "$gh_choice" in
   skip) echo "GitHub: starting tokenless — add a token later with 'cbox-refresh-pat' (no restart).";;
   pat)  echo "GitHub: drop a PAT (repo scope) at ~/.agent-sandbox/github-pat (chmod 600), or use 'cbox-refresh-pat <path>'.";;
 esac
+
+# ── Optional: per-host credentials for non-GitHub git hosts ─────────────────────
+# Upsert lines into ~/.agent-sandbox/git-credentials (same dir as .env, so tests can redirect
+# both via AGENT_SANDBOX_ENV). bootstrap.sh then provisions this file into the container, where
+# agent-config-sync installs it and enables git's credential.helper store.
+CREDS_FILE="$(dirname "$ENV_FILE")/git-credentials"
+
+cred_host() {  # host from a credential URL line: https://userinfo@host/path -> host
+  local rest="${1##*@}"        # strip up to and incl. the LAST @ (tokens rarely contain @)
+  printf '%s' "${rest%%/*}"    # drop any /path
+}
+
+upsert_cred() {  # upsert one credential line, keyed by host (one line per host)
+  local line="$1" host tmp existing
+  host="$(cred_host "$line")"
+  mkdir -p "$(dirname "$CREDS_FILE")"
+  tmp="$(mktemp "$(dirname "$CREDS_FILE")/.gitcred.XXXXXX")"
+  ( umask 077
+    if [[ -f "$CREDS_FILE" ]]; then
+      while IFS= read -r existing || [[ -n "$existing" ]]; do
+        [[ -z "$existing" ]] && continue
+        [[ "$(cred_host "$existing")" == "$host" ]] && continue   # drop old line for this host
+        printf '%s\n' "$existing"
+      done < "$CREDS_FILE" > "$tmp"
+    fi
+    printf '%s\n' "$line" >> "$tmp" )
+  chmod 600 "$tmp"
+  mv "$tmp" "$CREDS_FILE"
+}
+
+if [[ "$NONINTERACTIVE" == 1 ]]; then
+  if [[ -n "${AGENT_GIT_CREDENTIALS:-}" ]]; then
+    while IFS= read -r credline || [[ -n "$credline" ]]; do
+      [[ -z "$credline" ]] && continue
+      upsert_cred "$credline"
+    done <<< "$AGENT_GIT_CREDENTIALS"
+    echo "Provisioned git credentials → $CREDS_FILE"
+  fi
+fi
