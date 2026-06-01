@@ -28,8 +28,8 @@ ARG GITLEAKS_VERSION=8.21.2
 RUN curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
     | tar -xz -C /usr/local/bin gitleaks
 
-# Claude Code CLI.
-RUN npm install -g @anthropic-ai/claude-code
+# Claude Code CLI is installed via the native installer after USER claude (see below),
+# so it lands in the claude-owned ~/.local and auto-update works.
 
 # Non-root user. `node:lts-bookworm` base ships a `node` user/group at UID/GID 1000 —
 # delete it so we can reuse 1000 for `claude` (matches typical host UID for bind-mount ownership).
@@ -78,7 +78,7 @@ ENV TZ=${TZ} \
     HTTPS_PROXY=http://127.0.0.1:3128 \
     NO_PROXY=127.0.0.1,localhost \
     BASH_ENV=/usr/local/bin/audit-shell.sh \
-    PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+    PATH=/home/claude/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
 # Point glibc at TZ so `date`, logs, and tooling report local time (not just $TZ-aware tools).
 RUN ln -snf "/usr/share/zoneinfo/${TZ}" /etc/localtime && echo "${TZ}" > /etc/timezone
@@ -94,5 +94,12 @@ RUN echo 'claude ALL=(root) NOPASSWD: ALL' > /etc/sudoers.d/claude && \
 
 USER claude
 WORKDIR /projects
+
+# Claude Code via the native standalone installer, as the claude user, into ~/.local.
+# Proxy is cleared for this RUN: squid isn't running at build time (HTTPS_PROXY points at
+# 127.0.0.1:3128 from the ENV block above), and the build has direct egress. The installer
+# fetches version/manifest/binary from downloads.claude.ai and runs `claude install stable`,
+# placing the launcher at /home/claude/.local/bin/claude (on PATH via the ENV block above).
+RUN HTTPS_PROXY= HTTP_PROXY= NO_PROXY= curl -fsSL https://claude.ai/install.sh | bash -s -- stable
 
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
