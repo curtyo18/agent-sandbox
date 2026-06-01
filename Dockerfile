@@ -97,9 +97,12 @@ WORKDIR /projects
 
 # Claude Code via the native standalone installer, as the claude user, into ~/.local.
 # Proxy is cleared for this RUN: squid isn't running at build time (HTTPS_PROXY points at
-# 127.0.0.1:3128 from the ENV block above), and the build has direct egress. The installer
+# 127.0.0.1:3128 from the ENV block above), and the build has direct egress. The cleared
+# vars wrap a `bash -c` so they apply to the whole pipeline — curl AND the installer, which
+# does its own downloads from downloads.claude.ai (an inline `VAR= curl | bash` would only
+# clear the proxy for curl, leaving the installer pointed at the dead proxy). The installer
 # fetches version/manifest/binary from downloads.claude.ai and runs `claude install stable`,
 # placing the launcher at /home/claude/.local/bin/claude (on PATH via the ENV block above).
-RUN HTTPS_PROXY= HTTP_PROXY= NO_PROXY= curl -fsSL https://claude.ai/install.sh | bash -s -- stable
+RUN HTTPS_PROXY= HTTP_PROXY= NO_PROXY= bash -c 'curl -fsSL https://claude.ai/install.sh | bash -s -- stable'
 
 ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
