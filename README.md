@@ -40,24 +40,27 @@ is in [docs/architecture.md](docs/architecture.md).
 
 - Docker, on WSL2 (Ubuntu) — the blessed path. Plain Linux works too; see
   [Running without WSL](#running-without-wsl-what-bootstrap-automates).
-- GitHub access — **optional**. Without it the container still comes up as a working tokenless
-  session; add `gh` on the host or a PAT with `repo` scope for private clones and `git push`.
-  See [GitHub access](#github-access).
+- Git host access — **optional and host-agnostic**. Any HTTPS host works (GitHub, GitLab,
+  Bitbucket, Gitea, self-hosted); without credentials the container still comes up as a working
+  tokenless session. GitHub uses `gh` or a `repo`-scope PAT; other hosts use a per-host credential.
+  See [GitHub access](#github-access) and [Using other git hosts](#using-other-git-hosts).
 
 ## Quick start (WSL2)
 
-`bash bootstrap.sh --init` is the guided path: it detects your `gh` login, asks how you want
-GitHub access (use it / skip for a tokenless session / point at a PAT file), confirms your git
-identity and projects directory, writes `~/.agent-sandbox/.env`, then builds and runs. It also
-records where you cloned, so there's nothing to set by hand.
+`bash bootstrap.sh --init` is the guided path: it walks you through GitHub access (a detected `gh`
+login / a PAT file / skip for a tokenless session) **and credentials for any other git host**
+(GitLab, Bitbucket, Gitea, self-hosted), confirms your git identity and projects directory, then
+writes `~/.agent-sandbox/.env` and builds — recording where you cloned, so there's nothing to set
+by hand.
 
 ```bash
 # 1. Clone anywhere — --init records the path for you.
 git clone https://github.com/curtyo18/agent-sandbox.git ~/projects/agent-sandbox
 cd ~/projects/agent-sandbox
 
-# 2. (Optional) log in to GitHub to act as yourself. Skip it to start tokenless and add a
-#    token later, or to point --init at a PAT file instead — it offers both. See "GitHub access".
+# 2. (Optional) git host access. For GitHub: `gh auth login` to act as yourself (or let --init
+#    use a PAT file). --init also prompts for other hosts (GitLab/Bitbucket/Gitea/self-hosted) —
+#    or skip it all for a tokenless session. See "GitHub access" / "Using other git hosts".
 gh auth login
 
 # 3. Guided setup + build. Answer the prompts; it writes ~/.agent-sandbox/.env, then runs.
