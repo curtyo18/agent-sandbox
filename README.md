@@ -138,9 +138,9 @@ container's git operations aren't GitHub-specific. To use another host:
    e.g. `acl allowed_hosts dstdomain .your-host.com`, then restart.
 2. **Add a credential.** Put one line per host in `~/.agent-sandbox/git-credentials` (chmod 600);
    bootstrap provisions it and the container serves it via git's credential store — this runs
-   alongside your GitHub `gh` login (separate helpers), so it never disturbs GitHub access. (The
-   `bootstrap.sh --init` wizard sets up GitHub auth only; other hosts are configured here.) The
-   username prefix differs by provider:
+   alongside your GitHub `gh` login (separate helpers), so it never disturbs GitHub access.
+   (`bootstrap.sh --init` provisions these interactively, or via `AGENT_GIT_CREDENTIALS` in CI;
+   you can also edit this file by hand.) The username prefix differs by provider:
 
    | Host | `~/.agent-sandbox/git-credentials` line | Open a PR/MR |
    |---|---|---|
