@@ -5,6 +5,7 @@ rails, automatic config, and a full audit trail.
 
 - **Network egress** via a squid proxy (strict domain allowlist by default).
 - **`gh` wrapper** that blocks destructive GitHub operations and logs every call.
+- **Any git host** — GitHub (most integrated), plus GitLab, Bitbucket, Gitea, or self-hosted over HTTPS.
 - **`rm` / `rmdir` wrappers** and **pre-commit secret scanning**.
 - **Automatic config** cloned from [agent-config](https://github.com/curtyo18/agent-config)
   at start, with an optional private overlay.
@@ -66,7 +67,7 @@ gh auth login
 # 3. Guided setup + build. Answer the prompts; it writes ~/.agent-sandbox/.env, then runs.
 bash bootstrap.sh --init
 
-# 4. First run only: sign in to Claude itself — the Anthropic login, separate from GitHub.
+# 4. First run only: sign in to Claude itself — the Anthropic login, separate from your git host.
 docker exec -it claude-box bash -lc 'claude login'
 ```
 
@@ -166,8 +167,7 @@ surface. HTTPS + `git-credentials` keeps everything inside the proxy and is the 
 When `bootstrap.sh` starts the container, `entrypoint.sh` runs once: it calls `agent-config-sync`,
 which clones (or updates) the *public* `agent-config` into the persistent `~/.claude` volume,
 wires git identity + the `claude()` wrapper, and seeds workspace trust — all with **no token
-needed**. A GitHub token only adds `gh` auth, the private overlay, and authenticated push. It
-then renders `squid.conf` from the allowlist and starts squid, and idles, ready for `cbox` /
+needed**. It then renders `squid.conf` from the allowlist and starts squid, and idles, ready for `cbox` /
 `docker exec`.
 
 ```mermaid
@@ -252,28 +252,27 @@ directly — you provision the token into the auth volume yourself and pass real
 `GIT_USER_*` (there's no identity auto-detection on this path):
 
 ```bash
-docker build -t claude-sandbox .          # TZ defaults to Europe/London; override with --build-arg TZ=…
+docker build -t claude-box .          # TZ defaults to Europe/London; override with --build-arg TZ=…
 
-docker run -d --name claude-sandbox \
+docker run -d --name claude-box \
   -e GIT_USER_EMAIL="you@example.com" \
   -e GIT_USER_NAME="Your Name" \
   -v claude-auth:/home/claude/.claude-auth \
   -v "$HOME/projects:/projects" \
-  claude-sandbox
+  claude-box
 
 # Provision the PAT, then restart so the entrypoint picks it up and clones config.
-docker cp ~/.agent-sandbox/github-pat claude-sandbox:/home/claude/.claude-auth/github-pat
-docker exec claude-sandbox chown claude:claude /home/claude/.claude-auth/github-pat
-docker exec claude-sandbox chmod 600 /home/claude/.claude-auth/github-pat
-docker restart claude-sandbox
+docker cp ~/.agent-sandbox/github-pat claude-box:/home/claude/.claude-auth/github-pat
+docker exec claude-box chown claude:claude /home/claude/.claude-auth/github-pat
+docker exec claude-box chmod 600 /home/claude/.claude-auth/github-pat
+docker restart claude-box
 
-docker exec -it claude-sandbox bash -lc 'claude login'
-docker exec -it claude-sandbox bash -lc 'cd /projects && claude --dangerously-skip-permissions'
+docker exec -it claude-box bash -lc 'claude login'
+docker exec -it claude-box bash -lc 'cd /projects && claude --dangerously-skip-permissions'
 ```
 
-Without a token the container still comes up as a working tokenless session (public config,
-identity, wrapper, egress); only private clone/push and the overlay wait for a token (add one
-later with `cbox-refresh-pat`).
+Without a token you still get a working tokenless session here too; add one later with
+`cbox-refresh-pat`. See [GitHub access](#github-access) for exactly what a token gates.
 
 ## Network allowlist
 
