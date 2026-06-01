@@ -207,6 +207,16 @@ The root cause of the VM-level event is undetermined; both `dmesg` and the syste
 
 **What we didn't add.** A higher-level watchdog (Windows-side scheduled task that hits the launcher URL and restarts docker on failure) was considered and parked. The retry+journal mitigations are the minimum-noise step; revisit if a second incident shows the retry budget wasn't enough.
 
+### 16. Native Claude install (replaces npm-global)
+
+**Symptom.** `claude doctor` reports the npm global folder isn't writable; auto-update silently fails inside the container.
+
+**Cause.** `npm install -g @anthropic-ai/claude-code` ran as root before `USER claude`, so the install tree under `/usr/local/lib/node_modules` is root-owned. The non-root `claude` user can't write there, so the in-place updater can't run.
+
+**Fix.** Install via the native standalone installer (`claude.ai/install.sh`) as the `claude` user, landing the launcher in the claude-owned `~/.local/bin`. Prepend `/home/claude/.local/bin` to the image `ENV PATH` so the bashrc `claude()` wrapper and `cbox`'s `bash -lc` invocation resolve it. Widen the squid allowlist from `claude.ai` to `.claude.ai` so runtime auto-update reaches `downloads.claude.ai` (where the installer fetches version, manifest, and binary). The build clears the proxy for the install RUN since squid isn't running at build time.
+
+**Why not chown /usr/local.** Making the npm global dir writable would also require the `claude` user to own `/usr/local/bin`, where the `git`/`rm`/`gh` safety wrappers live — letting the sandboxed agent overwrite its own guard rails. The native installer keeps the wrappers root-owned.
+
 ## Host-side gotchas (not in this repo's code, but bit us)
 
 - **BIOS virtualization off by default.** AMD CPUs need SVM Mode enabled in BIOS (Gigabyte: Tweaker → Advanced CPU Settings). WSL2 fails with `HCS_E_HYPERV_NOT_INSTALLED` until this is on.
