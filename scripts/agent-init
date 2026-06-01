@@ -114,4 +114,41 @@ if [[ "$NONINTERACTIVE" == 1 ]]; then
     done <<< "$AGENT_GIT_CREDENTIALS"
     echo "Provisioned git credentials → $CREDS_FILE"
   fi
+else
+  while :; do
+    sel="$(ask "Add a non-GitHub git host? [g]itLab / [b]itbucket / gi[t]ea / [o]ther / [d]one" "d")"
+    case "${sel:0:1}" in
+      g|G) prov="gitlab";    defhost="gitlab.com" ;;
+      b|B) prov="bitbucket"; defhost="bitbucket.org" ;;
+      t|T) prov="gitea";     defhost="" ;;
+      o|O) prov="other";     defhost="" ;;
+      *)   break ;;
+    esac
+    host="$(ask "  Host" "$defhost")"
+    [[ -z "$host" ]] && { echo "  (no host — skipped)"; continue; }
+    tok=""; user=""; line=""   # reset so a stale line from a prior iteration can't be re-used
+    case "$prov" in
+      gitlab)
+        read -rsp "  Token (input hidden): " tok || true; echo
+        line="https://oauth2:${tok}@${host}" ;;
+      bitbucket)
+        user="$(ask "  Username" "")"
+        read -rsp "  App password (input hidden): " tok || true; echo
+        line="https://${user}:${tok}@${host}" ;;
+      gitea)
+        read -rsp "  Token (input hidden): " tok || true; echo
+        line="https://${tok}@${host}" ;;
+      other)
+        user="$(ask "  Username (blank for token-only)" "")"
+        read -rsp "  Token (input hidden): " tok || true; echo
+        if [[ -n "$user" ]]; then line="https://${user}:${tok}@${host}"; else line="https://${tok}@${host}"; fi ;;
+    esac
+    [[ -z "$tok" ]] && { echo "  (no token — skipped)"; continue; }
+    upsert_cred "$line"
+    echo "  Saved credential for $host."
+    case "$host" in
+      github.com|gitlab.com|bitbucket.org) : ;;
+      *) echo "  Note: add '$host' to network-allowlist.conf in your agent-config, or the container can't reach it." ;;
+    esac
+  done
 fi
