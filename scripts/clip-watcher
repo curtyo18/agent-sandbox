@@ -3,7 +3,8 @@
 # Polls the host-visible clipboard directory (inotify doesn't fire on WSL2
 # 9p mounts so we can't use inotifywait here). Dispatches by filename:
 #   out      → container wrote outgoing text; pipe to Windows clip.exe
-#   request  → container asks for clipboard; capture via PowerShell, write response
+#   request  → container asks for clipboard; capture via PowerShell. An image on the clipboard
+#              is saved as response.png; otherwise the text goes to response.
 #
 # Run as a systemd service (see claude-clip-watcher.service).
 
@@ -43,10 +44,22 @@ while true; do
     last_out_mtime=$cur_out_mtime
   fi
 
-  # Inbound: container request → capture Windows clipboard → response file
+  # Inbound: container request → capture Windows clipboard. An image is saved as response.png
+  # (Claude reads images from a path); otherwise the text goes to response. The image attempt is
+  # best-effort — if there's no image, wslpath is missing, or PowerShell errors, we fall back to text.
   if [[ -e "$DIR/request" ]]; then
-    "$POWERSHELL" -NoProfile -Command 'Get-Clipboard -Raw' 2>/dev/null | sed 's/\r$//' > "$DIR/response"
+    rm -f "$DIR/response" "$DIR/response.png"
+    win_png="$(wslpath -w "$DIR/response.png" 2>/dev/null || true)"
+    if [[ -n "$win_png" ]]; then
+      "$POWERSHELL" -NoProfile -Sta -Command "Add-Type -AssemblyName System.Windows.Forms, System.Drawing; \$i = [System.Windows.Forms.Clipboard]::GetImage(); if (\$i) { \$i.Save('$win_png', [System.Drawing.Imaging.ImageFormat]::Png) }" 2>>"$LOG"
+    fi
+    if [[ -s "$DIR/response.png" ]]; then
+      echo "[$(date -Iseconds)] clipboard → response.png (image)" >> "$LOG"
+    else
+      rm -f "$DIR/response.png"
+      "$POWERSHELL" -NoProfile -Command 'Get-Clipboard -Raw' 2>/dev/null | sed 's/\r$//' > "$DIR/response"
+      echo "[$(date -Iseconds)] clipboard → response (text)" >> "$LOG"
+    fi
     rm -f "$DIR/request"
-    echo "[$(date -Iseconds)] clipboard → response" >> "$LOG"
   fi
 done

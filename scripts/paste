@@ -1,14 +1,20 @@
 #!/bin/bash
-# paste — read Windows clipboard via the WSL-side watcher.
-# Writes a request sentinel, waits for response, prints it.
+# paste — read the Windows clipboard via the WSL-side watcher.
+# Writes a request sentinel, waits for the watcher to answer, then prints either the clipboard
+# text, or — when the clipboard holds an image — the path to a PNG the watcher saved (Claude
+# reads images from a path, so you can hand the path straight to it).
 set -e
 DIR=/projects/.claude-clipboard
 mkdir -p "$DIR"
-rm -f "$DIR/response"
+rm -f "$DIR/response" "$DIR/response.png"
 touch "$DIR/request"
 for _ in $(seq 1 50); do
   sleep 0.1
-  if [[ ! -e "$DIR/request" && -e "$DIR/response" ]]; then
+  [[ -e "$DIR/request" ]] && continue
+  if [[ -s "$DIR/response.png" ]]; then
+    echo "$DIR/response.png"
+    exit 0
+  elif [[ -e "$DIR/response" ]]; then
     cat "$DIR/response"
     exit 0
   fi
