@@ -59,7 +59,7 @@ Layered scan: filename → regex → gitleaks.
 | Check | Result |
 |---|---|
 | `/audit/YYYY-MM-DD.jsonl` exists | yes (487 events accumulated by end of test run) |
-| Event sources span `audit-shell`, `entrypoint`, `gh-wrapper`, `pre-commit`, `squid` | yes |
+| Event sources span `audit-shell`, `entrypoint`, `gh-wrapper`, `pre-commit`, `squid`, `squid-watchdog` | yes |
 | `node session-start.cjs` runs cleanly | exit 0 |
 | Emits `<system-reminder>…</system-reminder>` listing blocked/interesting events since last session | yes (18 events surfaced in test) |
 

@@ -217,6 +217,14 @@ The root cause of the VM-level event is undetermined; both `dmesg` and the syste
 
 **Why not chown /usr/local.** Making the npm global dir writable would also require the `claude` user to own `/usr/local/bin`, where the `git`/`rm`/`gh` safety wrappers live — letting the sandboxed agent overwrite its own guard rails. The native installer keeps the wrappers root-owned.
 
+### 17. squid died with nothing to restart it
+
+**Symptom.** Production container: every Claude request started failing with `Unable to connect to API (ConnectionRefused)`. squid had aborted hours earlier with `FATAL: check failed: waiting()` (`HappyConnOpener.cc:225`, a known squid 5.x bug) and nothing brought it back — the container stayed alive (PID 1 was `sleep infinity`) but 3128 was dead. Hot-fixed live with `sudo rm -f /run/squid.pid; sudo squid`, which doesn't survive a recreate.
+
+**Cause.** `entrypoint.sh` launched squid as a bare background child (`squid -N`) and then `exec sleep infinity`. Nothing supervised squid; no fixed squid package exists for bookworm, so an upgrade wasn't a clean option.
+
+**Fix.** Replaced `exec sleep infinity` with a PID-1 supervision loop in `entrypoint.sh` that polls `127.0.0.1:3128` (a bare `/dev/tcp` connect — unambiguous, and `pgrep -f squid` would false-match the audit tailer) and respawns squid with capped backoff (5s poll → on persistent failure widen to 60s, log a one-time `flapping` warning, never permanently give up). Each restart is logged to the audit log under a new `squid-watchdog` source. `start_squid()` was split so the access-log→audit `tail -F` loop is spawned **once** (`start_audit_tailer`); respawning it would double every audited line. Covered by `tests/test-squid-selfheal.sh`. Soft caveat: `entrypoint.sh` only runs at container start, so the live `claude-box` picks this up on an **image rebuild + container recreate** — not a bare `docker restart`, and not `cbox-refresh-pat` (which only re-syncs config + `squid -k reconfigure`).
+
 ## Host-side gotchas (not in this repo's code, but bit us)
 
 - **BIOS virtualization off by default.** AMD CPUs need SVM Mode enabled in BIOS (Gigabyte: Tweaker → Advanced CPU Settings). WSL2 fails with `HCS_E_HYPERV_NOT_INSTALLED` until this is on.
