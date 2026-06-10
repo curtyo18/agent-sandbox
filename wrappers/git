@@ -4,23 +4,65 @@
 # Uses /usr/bin/git directly for internal lookups to avoid recursive invocation.
 
 if [[ "${CONTAINER_MODE:-}" == "research" ]]; then
-  case "$*" in
-    push\ --force*|push\ --force-with-lease*|push\ -f\ *|push\ -f)
-      echo "ERROR: git push --force is blocked in research mode." >&2
-      exit 1
-      ;;
-    push\ *)
-      remote=$(echo "$*" | awk '{for(i=2;i<=NF;i++) if($i !~ /^-/) {print $i; exit}}')
-      remote="${remote:-origin}"
-      remote_url=$(/usr/bin/git remote get-url "$remote" 2>/dev/null || echo "")
-      if [[ "$remote_url" != "${RESEARCH_REPO:-}" ]]; then
-        echo "ERROR: git push blocked in research mode. Only pushes to RESEARCH_REPO are allowed." >&2
-        echo "  Remote URL:    ${remote_url}" >&2
-        echo "  RESEARCH_REPO: ${RESEARCH_REPO:-<unset>}" >&2
-        exit 1
+  # Find the real subcommand by skipping leading git global options. Git accepts
+  # options before the subcommand (e.g. `git -C /dir push ...`, `git -c k=v push`),
+  # so a naive `case "$*"` anchored at argv start misses the subcommand entirely.
+  args=("$@")
+  i=0
+  n=${#args[@]}
+  while (( i < n )); do
+    opt="${args[i]}"
+    case "$opt" in
+      # Global options that take a separate argument.
+      -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env)
+        i=$((i + 2))
+        ;;
+      # Same options in --opt=value / -C=value form (single token).
+      -C=*|-c=*|--git-dir=*|--work-tree=*|--namespace=*|--exec-path=*|--config-env=*)
+        i=$((i + 1))
+        ;;
+      # Other leading global flags that take no argument.
+      -*)
+        i=$((i + 1))
+        ;;
+      # First non-option token is the subcommand.
+      *)
+        break
+        ;;
+    esac
+  done
+
+  subcmd="${args[i]:-}"
+
+  if [[ "$subcmd" == "push" ]]; then
+    # Scan ALL push args for a force flag anywhere (before or after the refspec).
+    for ((j = i + 1; j < n; j++)); do
+      case "${args[j]}" in
+        --force|-f|--force-with-lease|--force-with-lease=*|--force-if-includes)
+          echo "ERROR: git push --force is blocked in research mode." >&2
+          exit 1
+          ;;
+      esac
+    done
+
+    # Non-force push: only the RESEARCH_REPO remote is allowed. Extract the first
+    # non-option token after `push` as the remote (default: origin).
+    remote=""
+    for ((j = i + 1; j < n; j++)); do
+      if [[ "${args[j]}" != -* ]]; then
+        remote="${args[j]}"
+        break
       fi
-      ;;
-  esac
+    done
+    remote="${remote:-origin}"
+    remote_url=$(/usr/bin/git remote get-url "$remote" 2>/dev/null || echo "")
+    if [[ "$remote_url" != "${RESEARCH_REPO:-}" ]]; then
+      echo "ERROR: git push blocked in research mode. Only pushes to RESEARCH_REPO are allowed." >&2
+      echo "  Remote URL:    ${remote_url}" >&2
+      echo "  RESEARCH_REPO: ${RESEARCH_REPO:-<unset>}" >&2
+      exit 1
+    fi
+  fi
 fi
 
 exec /usr/bin/git "$@"

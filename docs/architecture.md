@@ -31,7 +31,7 @@ The gh wrapper sits at `/usr/local/bin/gh`, ahead of the real binary, and patter
 - Composable: future guards (e.g. blocking certain `gh api` POSTs) are just new patterns in one file.
 - Easy to override via env var (`CLAUDE_UNLOCK_DESTRUCTIVE=1`) without disabling the whole guard.
 
-**Trade-off:** if the wrapper has a regex bug, dangerous calls can slip through. Mitigated by `tests/test-gh-wrapper.sh` covering all the blocked patterns + the override path.
+**Trade-off:** if the wrapper has a parsing bug, dangerous calls can slip through. Matching is argv-aware (argv is normalized — `--flag=value` split, `--method`→`-X`, `--field`/`--raw-field`/`-F`→`-f` — then the subcommand and method are identified positionally, not by substring), so flag order, equals-forms, and trailing flags can't bypass a guard, and free text in a `--body`/comment can't trigger a false block. Mitigated by `tests/test-gh-wrapper.sh`, which covers every blocked intent (repo delete/transfer/archive, visibility flip, `api` PATCH/DELETE to `/repos` and `visibility=public` payloads), the previously-bypassable forms, the override path, and the comment-body over-block regression.
 
 ## Existing gh token, not a fine-grained PAT
 
