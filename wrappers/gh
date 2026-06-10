@@ -18,26 +18,127 @@ log() {
 
 joined_args="$*"
 
-# Patterns to BLOCK unless CLAUDE_UNLOCK_DESTRUCTIVE=1.
-BLOCK_PATTERNS=(
-  'repo edit [^ ]+ --visibility public'
-  'repo edit --visibility public'
-  'repo delete'
-  'repo transfer'
-  'repo archive'
-  'api -X (PATCH|DELETE) .*-f visibility=public'
-  'api -X (PATCH|DELETE) /repos/[^ ]+$'
-)
-
-is_blocked=0
-reason=""
-for pat in "${BLOCK_PATTERNS[@]}"; do
-  if [[ "$joined_args" =~ $pat ]]; then
-    is_blocked=1
-    reason="$pat"
-    break
+# --- Normalize argv ---------------------------------------------------------
+# Build a normalized token stream so the intent check is argv-aware rather than
+# a substring match over the whole command line. Normalization:
+#   * --flag=value         -> --flag value
+#   * --method             -> -X        (gh long form of -X)
+#   * --field / --raw-field -> -f        (gh long forms of -f)
+#   * -F                   -> -f
+# Original argv is still passed verbatim to the real gh on pass-through.
+NORM=()
+for arg in "$@"; do
+  if [[ "$arg" == --*=* ]]; then
+    flag="${arg%%=*}"
+    val="${arg#*=}"
+    case "$flag" in
+      --method)    NORM+=("-X" "$val") ;;
+      --field|--raw-field) NORM+=("-f" "$val") ;;
+      *)           NORM+=("$flag" "$val") ;;
+    esac
+  else
+    case "$arg" in
+      --method)            NORM+=("-X") ;;
+      --field|--raw-field|-F) NORM+=("-f") ;;
+      *)                   NORM+=("$arg") ;;
+    esac
   fi
 done
+
+# Positional (non-option) tokens, in order, for subcommand identification.
+POS=()
+for tok in "${NORM[@]:-}"; do
+  [[ -z "$tok" ]] && continue
+  [[ "$tok" == -* ]] && continue
+  POS+=("$tok")
+done
+
+sub1="${POS[0]:-}"
+sub2="${POS[1]:-}"
+
+# Does the normalized stream contain `-X <method>` for the given method?
+has_method() {
+  local want="$1" i
+  for ((i = 0; i < ${#NORM[@]}; i++)); do
+    if [[ "${NORM[i]}" == "-X" && "${NORM[i+1]:-}" == "$want" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Does any normalized token equal the given string?
+has_token() {
+  local want="$1" tok
+  for tok in "${NORM[@]:-}"; do
+    [[ "$tok" == "$want" ]] && return 0
+  done
+  return 1
+}
+
+# Does any positional token target a /repos/... API path?
+api_targets_repos() {
+  local tok
+  for tok in "${POS[@]:-}"; do
+    [[ "$tok" == /repos/* || "$tok" == repos/* ]] && return 0
+  done
+  return 1
+}
+
+# Does any `-f key=value` (after normalization) set visibility=public/internal?
+has_visibility_payload() {
+  local i
+  for ((i = 0; i < ${#NORM[@]}; i++)); do
+    if [[ "${NORM[i]}" == "-f" ]]; then
+      case "${NORM[i+1]:-}" in
+        visibility=public|visibility=internal) return 0 ;;
+      esac
+    fi
+  done
+  return 1
+}
+
+# For `repo edit`, is --visibility public|internal requested (any spelling)?
+repo_edit_visibility_flip() {
+  local i
+  for ((i = 0; i < ${#NORM[@]}; i++)); do
+    if [[ "${NORM[i]}" == "--visibility" ]]; then
+      case "${NORM[i+1]:-}" in
+        public|internal) return 0 ;;
+      esac
+    fi
+  done
+  return 1
+}
+
+# --- Intent check -----------------------------------------------------------
+is_blocked=0
+reason=""
+
+case "$sub1" in
+  repo)
+    case "$sub2" in
+      delete)   is_blocked=1; reason="repo delete" ;;
+      transfer) is_blocked=1; reason="repo transfer" ;;
+      archive)  is_blocked=1; reason="repo archive" ;;
+      edit)
+        if repo_edit_visibility_flip; then
+          is_blocked=1; reason="repo edit --visibility public/internal"
+        fi
+        ;;
+    esac
+    ;;
+  api)
+    if has_method PATCH || has_method DELETE; then
+      if api_targets_repos; then
+        is_blocked=1; reason="api -X PATCH/DELETE /repos/..."
+      fi
+    fi
+    if [[ $is_blocked -eq 0 ]] && has_visibility_payload; then
+      is_blocked=1; reason="api visibility=public/internal"
+    fi
+    ;;
+esac
 
 if [[ $is_blocked -eq 1 ]]; then
   if [[ "${CLAUDE_UNLOCK_DESTRUCTIVE:-0}" == "1" ]]; then
