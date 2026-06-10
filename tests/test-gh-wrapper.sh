@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # The wrapper script under test. Tests stub out the real `gh` to avoid making API calls.
-WRAPPER="$(cd "$(dirname "$0")/.." && pwd)/wrappers/gh"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WRAPPER="$ROOT/wrappers/gh"
+export AGENT_LIB="$ROOT/scripts/agent-lib.sh"   # wrapper sources ${AGENT_LIB:-/usr/local/bin/agent-lib.sh}
 
 # Make a temp dir with a fake `gh` (the "real" one) that just echoes its args.
 TMP=$(mktemp -d)

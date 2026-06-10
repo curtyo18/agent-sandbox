@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # git-audit-wrapper: log git ops of interest. Called from audit-shell.sh, not a PATH shim.
 set -euo pipefail
+. "${AGENT_LIB:-/usr/local/bin/agent-lib.sh}"
 AUDIT_LOG="${CLAUDE_AUDIT_LOG:-/audit/$(date +%F).jsonl}"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 CWD="${PWD}"
@@ -30,5 +31,5 @@ esac
 if [[ -n "$reason" ]]; then
   mkdir -p "$(dirname "$AUDIT_LOG")"
   printf '{"ts":"%s","src":"git-wrapper","action":"git %s","cwd":"%s","blocked":false,"reason":"%s"}\n' \
-    "$TS" "$argv" "$CWD" "$reason" >> "$AUDIT_LOG"
+    "$TS" "$(json_escape "$argv")" "$(json_escape "$CWD")" "$(json_escape "$reason")" >> "$AUDIT_LOG"
 fi

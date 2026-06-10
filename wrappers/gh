@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+. "${AGENT_LIB:-/usr/local/bin/agent-lib.sh}"
+
 REAL_GH="${CLAUDE_REAL_GH:-/usr/bin/gh}"
 AUDIT_LOG="${CLAUDE_AUDIT_LOG:-/audit/$(date +%F).jsonl}"
 CWD="${PWD}"
@@ -13,7 +15,7 @@ log() {
   local action="$1" blocked="$2" reason="${3:-}"
   mkdir -p "$(dirname "$AUDIT_LOG")"
   printf '{"ts":"%s","src":"gh-wrapper","action":"gh %s","cwd":"%s","blocked":%s,"reason":"%s"}\n' \
-    "$TS" "$action" "$CWD" "$blocked" "$reason" >> "$AUDIT_LOG"
+    "$TS" "$(json_escape "$action")" "$(json_escape "$CWD")" "$blocked" "$(json_escape "$reason")" >> "$AUDIT_LOG"
 }
 
 joined_args="$*"
