@@ -69,15 +69,6 @@ has_method() {
   return 1
 }
 
-# Does any normalized token equal the given string?
-has_token() {
-  local want="$1" tok
-  for tok in "${NORM[@]:-}"; do
-    [[ "$tok" == "$want" ]] && return 0
-  done
-  return 1
-}
-
 # Does any positional token target a /repos/... API path?
 api_targets_repos() {
   local tok
