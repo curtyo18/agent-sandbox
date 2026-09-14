@@ -173,9 +173,16 @@ echo "==> Stopping any existing container"
 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 
 echo "==> Starting container"
+# The container has no IPv6 egress, but Anthropic's endpoints publish AAAA records. Squid resolves
+# DNS itself (it does not honour glibc's AI_ADDRCONFIG filtering), so it will dial those IPv6
+# addresses and fail every connect with ENETUNREACH — surfacing as ERR_CONNECT_FAIL 101 / HTTP 503,
+# which breaks `claude` login at the platform.claude.com token exchange. Turning IPv6 off at the
+# kernel makes squid detect the dead stack at startup and stay on IPv4 for the life of the container.
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
+  --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+  --sysctl net.ipv6.conf.default.disable_ipv6=1 \
   --user 1000:1000 \
   -p 127.0.0.1:8000-8099:8000-8099 \
   -v "$PROJECTS_HOST_PATH:/projects" \
